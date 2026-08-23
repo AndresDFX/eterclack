@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1D1D1B">
+<title>Despliegue Hostinger · EterClack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="saltar" href="#contenido">Saltar al contenido</a>
+
+<div class="marco">
+  <aside class="lateral">
+    <a class="marca" href="index.html" aria-label="EterClack, inicio">
+      <span class="marca-tipo">eter<br>clack</span>
+      <span class="marca-esq"><i class="esq tr"></i><i class="esq br"></i></span>
+    </a>
+    <nav>
+      <a href="index.html">Inicio</a>
+      <a href="interfaz.html">La interfaz</a>
+      <a href="00-plan-implementacion.html">Plan de implementación</a>
+      <a href="01-arquitectura.html">Arquitectura</a>
+      <a href="02-entorno-local.html">Entorno local</a>
+      <a href="03-servidor-correo.html">Servidor de correo</a>
+      <a href="04-wompi.html">Wompi</a>
+      <a href="05-modelo-datos.html">Modelo de datos</a>
+      <a href="06-despliegue-hostinger.html" aria-current="page">Despliegue Hostinger</a>
+      <a href="07-plan-de-pruebas.html">Plan de pruebas</a>
+      <a href="08-plan-de-despliegue.html">Plan de despliegue</a>
+    </nav>
+    <p class="lateral-pie">ETERnidad<br>a un solo CLACK</p>
+  </aside>
+
+  <main id="contenido" class="doc">
+    <header class="cabecera">
+      <h1>Despliegue Hostinger</h1>
+      <p class="lede">Provisión, DNS, cutover, operación</p>
+    </header>
+    <article class="md"><p>Semanas 30–33. Hasta aquí todo ha corrido en local; ahora se lleva a un servidor real.</p>
+<hr>
+<h2>1. Requisito: VPS, no hosting compartido</h2>
+<p>El hosting compartido de Hostinger (LiteSpeed + PHP + MySQL) <strong>no sirve</strong> para este proyecto: no
+permite procesos Node persistentes, ni Docker, ni PostgreSQL, ni un MTA propio, ni puertos de correo.</p>
+<p><strong>Se requiere un VPS KVM.</strong> El dominio ya está en Hostinger, así que la zona DNS se administra desde
+hPanel sin mover nameservers — que era, precisamente, el trámite riesgoso que exigía el plan original
+con Cloudflare.</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Recurso</th>
+<th>Mínimo</th>
+<th>Recomendado</th>
+<th>Notas</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Plan</td>
+<td>KVM 2</td>
+<td><strong>KVM 4</strong></td>
+<td>Con correo y monitoreo en la misma máquina, 8 GB queda justo</td>
+</tr>
+<tr>
+<td>SO</td>
+<td>Ubuntu 24.04 LTS</td>
+<td>Ubuntu 24.04 LTS</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Disco</td>
+<td>100 GB</td>
+<td>200 GB</td>
+<td>La restricción real son las fotos — ver <a href="01-arquitectura.html">01 §4.1</a></td>
+</tr>
+<tr>
+<td>IP</td>
+<td>IPv4 dedicada</td>
+<td>IPv4 dedicada + PTR</td>
+<td><strong>El PTR es obligatorio para el correo</strong></td>
+</tr>
+<tr>
+<td>Backups</td>
+<td>—</td>
+<td>Snapshots del proveedor</td>
+<td>No sustituyen los backups externos</td>
+</tr>
+</tbody></table></div>
+<p>Verificar planes y precios vigentes en el panel de Hostinger antes de contratar.</p>
+<hr>
+<h2>2. S9 · Semana 30 — Infraestructura</h2>
+<h3>2.1 Endurecimiento del servidor</h3>
+<pre><code class="language-bash"># Usuario sin privilegios + SSH solo por llave
+adduser deploy &amp;&amp; usermod -aG sudo deploy
+ssh-copy-id deploy@&lt;IP&gt;
+# /etc/ssh/sshd_config: PermitRootLogin no · PasswordAuthentication no
+systemctl restart sshd
+
+# Firewall
+ufw default deny incoming &amp;&amp; ufw default allow outgoing
+ufw allow 22/tcp
+ufw allow 80,443/tcp
+ufw allow 25,465,587,993/tcp        # correo
+ufw enable
+
+# Parches automáticos de seguridad
+apt install unattended-upgrades &amp;&amp; dpkg-reconfigure -plow unattended-upgrades
+
+# Docker
+curl -fsSL https://get.docker.com | sh &amp;&amp; usermod -aG docker deploy
+
+# Defensa activa
+apt install fail2ban
+curl -s https://install.crowdsec.net | sh &amp;&amp; apt install crowdsec-firewall-bouncer-iptables
+</code></pre>
+<p><strong>Verificación de correo — hacerlo ahora, no en la semana 31:</strong></p>
+<pre><code class="language-bash"># Hostinger documenta que NO bloquea el puerto 25. Confirmarlo antes de comprometer fechas.
+telnet gmail-smtp-in.l.google.com 25
+</code></pre>
+<p>Si esto falla, todo el plan de correo propio se detiene: abrir ticket con soporte de Hostinger de
+inmediato. Es el punto de no retorno del subsistema de correo.</p>
+<h3>2.2 Caddyfile</h3>
+<pre><code class="language-caddyfile">{
+    email admin@eterclack.com
+}
+
+(comunes) {
+    header {
+        Strict-Transport-Security &quot;max-age=31536000; includeSubDomains; preload&quot;
+        X-Content-Type-Options    &quot;nosniff&quot;
+        X-Frame-Options           &quot;DENY&quot;
+        Referrer-Policy           &quot;strict-origin-when-cross-origin&quot;
+        -Server
+    }
+}
+
+eterclack.com, www.eterclack.com {
+    import comunes
+    root * /srv/web
+    encode gzip zstd
+    @assets path /assets/*
+    header @assets Cache-Control &quot;public, max-age=31536000, immutable&quot;
+    try_files {path} /index.html
+    file_server
+}
+
+api.eterclack.com {
+    import comunes
+    rate_limit {
+        zone api { key {remote_host}  events 120  window 1m }
+    }
+    reverse_proxy api:3000
+}
+
+cdn.eterclack.com {
+    import comunes
+    reverse_proxy minio:9000
+}
+</code></pre>
+<blockquote>
+<p>Caddy obtiene y renueva los certificados de Let&#39;s Encrypt sin intervención. Los certificados se
+comparten con el servidor de correo montando el volumen <code>caddy_data</code> en el contenedor de DMS.</p>
+</blockquote>
+<h3>2.3 CI/CD</h3>
+<pre><code>push a main
+  → GitHub Actions: lint, typecheck, test, build
+  → construir imágenes y publicar en GHCR
+  → SSH al VPS
+  → backup previo de la base de datos
+  → docker compose pull &amp;&amp; docker compose up -d
+  → prisma migrate deploy
+  → healthcheck; si falla → rollback a la imagen anterior
+</code></pre>
+<p>Reglas:</p>
+<ul>
+<li>Los secretos viven en GitHub Secrets y en el <code>.env</code> del servidor (permisos 600). Nunca en el
+repositorio.</li>
+<li><strong>Backup antes de cada migración</strong>, sin excepción.</li>
+<li>Migraciones siempre compatibles hacia atrás: primero agregar columna, desplegar, luego migrar
+datos, luego eliminar la vieja. Nunca <code>DROP</code> en el mismo despliegue que introduce el reemplazo.</li>
+<li>Rama <code>staging</code> → <code>staging.eterclack.com</code> con su propia base de datos y llaves de Wompi sandbox.</li>
+</ul>
+<h3>2.4 Backups</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Qué</th>
+<th>Cómo</th>
+<th>Frecuencia</th>
+<th>Retención</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>PostgreSQL</td>
+<td><code>pg_dump</code> comprimido → <code>restic</code> → Backblaze B2</td>
+<td>Diario 3:00</td>
+<td>30 diarios, 12 mensuales</td>
+</tr>
+<tr>
+<td>MinIO (fotos)</td>
+<td><code>rclone sync</code> → B2</td>
+<td>Diario 4:00</td>
+<td>Versionado 30 días</td>
+</tr>
+<tr>
+<td>Configuración y claves DKIM</td>
+<td><code>restic</code> → B2</td>
+<td>Semanal</td>
+<td>12 semanas</td>
+</tr>
+<tr>
+<td>VPS completo</td>
+<td>Snapshot de Hostinger</td>
+<td>Semanal</td>
+<td>Según el plan</td>
+</tr>
+</tbody></table></div>
+<blockquote>
+<p><strong>Un backup no probado no es un backup.</strong> El sprint S9 no se cierra hasta ejecutar una restauración
+completa en un entorno limpio y verificar que la aplicación levanta con esos datos. Repetir
+trimestralmente.</p>
+</blockquote>
+<h3>2.5 Monitoreo</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Herramienta</th>
+<th>Vigila</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Uptime Kuma</td>
+<td>Disponibilidad de web, api, SMTP e IMAP; alerta por correo y Telegram</td>
+</tr>
+<tr>
+<td>Prometheus + Grafana</td>
+<td>CPU, RAM, <strong>disco</strong>, latencia, tasa de error</td>
+</tr>
+<tr>
+<td>Loki + Promtail</td>
+<td>Logs centralizados con búsqueda</td>
+</tr>
+<tr>
+<td>Alertas propias</td>
+<td>Cola de correo atascada, webhooks fallidos, descuadre de conciliación, disco al 70 %</td>
+</tr>
+</tbody></table></div>
+<p>Umbrales de alerta: disco &gt; 70 %, RAM &gt; 85 %, latencia p95 &gt; 2 s, errores 5xx &gt; 1 %, cola de correo</p>
+<blockquote>
+<p>100, pagos pendientes con más de 2 h, cualquier descuadre en la conciliación de dispersión.</p>
+</blockquote>
+<hr>
+<h2>3. S10 · Semana 31 — DNS y correo</h2>
+<p>Secuencia importante. <strong>Primero se prepara todo, después se toca el MX.</strong></p>
+<ol>
+<li>Crear registros A: <code>@</code>, <code>www</code>, <code>api</code>, <code>cdn</code>, <code>mail</code> → IP del VPS.</li>
+<li><strong>Bajar el TTL del MX a 300 s y esperar 24 h.</strong> Esto permite revertir en minutos si algo sale mal.</li>
+<li>Solicitar el <strong>PTR/rDNS</strong> a soporte de Hostinger (<code>mail.eterclack.com</code>) y confirmar que quedó aplicado.</li>
+<li>Publicar SPF, DKIM y DMARC (<code>p=none</code>) — ver <a href="03-servidor-correo.html">03 §5</a>.</li>
+<li>Levantar DMS con TLS real, verificar firma DKIM en un mensaje recibido.</li>
+<li><strong>Cutover del MX</strong> en ventana de bajo tráfico, con los buzones anteriores ya exportados.</li>
+<li>Restaurar el TTL a 3600 s tras 48 h estables.</li>
+<li>Ejecutar el calentamiento de IP (14 días) — ver <a href="03-servidor-correo.html">03 §7.2</a>.</li>
+<li>Alta en Google Postmaster Tools y Microsoft SNDS.</li>
+<li>Verificar 10/10 en mail-tester.com y ausencia en listas negras.</li>
+</ol>
+<blockquote>
+<p>El calentamiento tarda dos semanas y se solapa con S11 y S12. Durante ese periodo, el volumen del
+piloto debe mantenerse dentro de los límites de la tabla de calentamiento.</p>
+</blockquote>
+<hr>
+<h2>4. S11 · Semana 32 — Producción y piloto</h2>
+<h3>4.1 Lista de verificación antes de abrir</h3>
+<p><strong>Configuración</strong></p>
+<ul>
+<li><input disabled="" type="checkbox"> <code>.env</code> de producción completo, permisos 600, sin ningún valor de ejemplo</li>
+<li><input disabled="" type="checkbox"> Llaves Wompi de <strong>producción</strong>; validación de arranque que rechaza mezclar ambientes</li>
+<li><input disabled="" type="checkbox"> URL de eventos de producción registrada en Wompi, <strong>distinta</strong> de la de sandbox</li>
+<li><input disabled="" type="checkbox"> Pagos a Terceros confirmado como activo (trámite A2)</li>
+<li><input disabled="" type="checkbox"> <code>PAYOUTS_ENABLED=true</code> y <code>PAYOUTS_REQUIRE_ADMIN_APPROVAL=true</code></li>
+<li><input disabled="" type="checkbox"> Comisión, ventana de retención y mínimo de dispersión cargados</li>
+<li><input disabled="" type="checkbox"> Textos legales definitivos publicados</li>
+</ul>
+<p><strong>Seguridad</strong></p>
+<ul>
+<li><input disabled="" type="checkbox"> UFW, fail2ban y CrowdSec activos</li>
+<li><input disabled="" type="checkbox"> SSH sin contraseña ni acceso root</li>
+<li><input disabled="" type="checkbox"> Consola de MinIO <strong>no expuesta</strong> a internet</li>
+<li><input disabled="" type="checkbox"> Postgres y Redis sin puertos publicados hacia afuera</li>
+<li><input disabled="" type="checkbox"> Cabeceras de seguridad verificadas en securityheaders.com</li>
+<li><input disabled="" type="checkbox"> Revisión de dependencias sin vulnerabilidades altas</li>
+</ul>
+<p><strong>Datos</strong></p>
+<ul>
+<li><input disabled="" type="checkbox"> Migraciones aplicadas</li>
+<li><input disabled="" type="checkbox"> Datos de prueba <strong>eliminados</strong> de producción</li>
+<li><input disabled="" type="checkbox"> Backup ejecutado y restauración verificada</li>
+<li><input disabled="" type="checkbox"> 3 fotógrafos reales cargados con KYC bancario completo</li>
+</ul>
+<p><strong>Correo</strong></p>
+<ul>
+<li><input disabled="" type="checkbox"> Calentamiento en curso, sin bloqueos</li>
+<li><input disabled="" type="checkbox"> Rebotes leyéndose correctamente</li>
+<li><input disabled="" type="checkbox"> Las 17 plantillas revisadas en Gmail, Outlook y móvil</li>
+</ul>
+<h3>4.2 El piloto</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Día</th>
+<th>Actividad</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Capacitación a los 3 fotógrafos (2 h); publican perfil, agenda y portafolio</td>
+</tr>
+<tr>
+<td>2–3</td>
+<td>Un cliente real recorre el flujo completo: solicitud → contrato → <strong>pago real de monto bajo</strong></td>
+</tr>
+<tr>
+<td>4–5</td>
+<td>Galería, selección, entrega y descarga</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>Primera dispersión real</strong>, monto pequeño, verificada manualmente contra el extracto bancario</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Revisión de logs, alertas, entregabilidad y consumo; registro de defectos</td>
+</tr>
+</tbody></table></div>
+<blockquote>
+<p>La primera dispersión real se verifica <strong>persona a persona</strong>: el fotógrafo confirma que el dinero
+llegó y por cuánto, y se coteja con el extracto. Ninguna automatización sustituye esta
+confirmación la primera vez.</p>
+</blockquote>
+<h3>4.3 Plan de reversa</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Falla</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Despliegue roto</td>
+<td><code>docker compose up -d</code> con la imagen anterior (rollback automatizado en CI)</td>
+</tr>
+<tr>
+<td>Migración destructiva</td>
+<td>Restaurar el backup previo a la migración</td>
+</tr>
+<tr>
+<td>Correo cayendo en spam</td>
+<td><code>MAIL_TRANSPORT=relay</code> + credenciales del proveedor externo → operativo en 2 minutos</td>
+</tr>
+<tr>
+<td>Dispersión con error</td>
+<td><code>PAYOUTS_ENABLED=false</code>; liquidación manual como en la cotización original</td>
+</tr>
+<tr>
+<td>Wompi caído</td>
+<td>Los pagos quedan pendientes; la conciliación los recupera al restablecerse</td>
+</tr>
+<tr>
+<td>VPS comprometido</td>
+<td>Restaurar snapshot, rotar <strong>todos</strong> los secretos, revisar auditoría</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h2>5. S12 · Semana 33 — Estabilización y entrega</h2>
+<ul>
+<li>Corregir los defectos del piloto</li>
+<li>Ajustar límites de tasa y cuotas con datos reales</li>
+<li>Documentación final: manual de operación administrativa, guía de despliegue, variables de entorno,
+procedimiento de restauración</li>
+<li>Sesión de entrega y capacitación (2 h, según la cotización)</li>
+<li>Acta de aceptación → arrancan los <strong>30 días de garantía</strong></li>
+</ul>
+<h3>5.1 Traspaso de responsabilidades</h3>
+<p>Al cerrar, EterClack asume la operación diaria. Antes de firmar debe quedar claro <strong>quién</strong> hace esto
+y <strong>con qué plan de soporte</strong>:</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Frecuencia</th>
+<th>Tarea</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Diaria</td>
+<td>Revisar alertas; cola de correo; pagos pendientes</td>
+</tr>
+<tr>
+<td>Semanal</td>
+<td>Reportes DMARC; listas negras; consumo de disco; conciliación de dispersión</td>
+</tr>
+<tr>
+<td>Quincenal</td>
+<td>Ejecutar y verificar la corrida de dispersión</td>
+</tr>
+<tr>
+<td>Mensual</td>
+<td>Parches del sistema y actualización de imágenes</td>
+</tr>
+<tr>
+<td>Trimestral</td>
+<td><strong>Prueba de restauración de backup</strong>; rotación de claves DKIM y secretos</td>
+</tr>
+</tbody></table></div>
+<blockquote>
+<p>Esto es trabajo nuevo que no existía en el plan sobre Cloudflare. Los planes de mantenimiento de la
+cotización (COP $350.000 y $650.000/mes) se dimensionaron sin él y <strong>deben revisarse antes de
+firmar el soporte posventa</strong>.</p>
+</blockquote>
+<hr>
+<h2>6. Fuentes</h2>
+<ul>
+<li>Hostinger — Puerto SMTP 25 en VPS: <a href="https://www.hostinger.com/support/7854530-is-smtp-port-25-blocked-on-hostinger-vps/">https://www.hostinger.com/support/7854530-is-smtp-port-25-blocked-on-hostinger-vps/</a></li>
+<li>Caddy — documentación: <a href="https://caddyserver.com/docs/">https://caddyserver.com/docs/</a></li>
+<li>docker-mailserver: <a href="https://docker-mailserver.github.io/docker-mailserver/latest/">https://docker-mailserver.github.io/docker-mailserver/latest/</a></li>
+</ul>
+</article>
+  </main>
+</div>
+</body>
+</html>

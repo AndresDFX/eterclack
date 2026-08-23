@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1D1D1B">
+<title>Plan de despliegue · EterClack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="saltar" href="#contenido">Saltar al contenido</a>
+
+<div class="marco">
+  <aside class="lateral">
+    <a class="marca" href="index.html" aria-label="EterClack, inicio">
+      <span class="marca-tipo">eter<br>clack</span>
+      <span class="marca-esq"><i class="esq tr"></i><i class="esq br"></i></span>
+    </a>
+    <nav>
+      <a href="index.html">Inicio</a>
+      <a href="interfaz.html">La interfaz</a>
+      <a href="00-plan-implementacion.html">Plan de implementación</a>
+      <a href="01-arquitectura.html">Arquitectura</a>
+      <a href="02-entorno-local.html">Entorno local</a>
+      <a href="03-servidor-correo.html">Servidor de correo</a>
+      <a href="04-wompi.html">Wompi</a>
+      <a href="05-modelo-datos.html">Modelo de datos</a>
+      <a href="06-despliegue-hostinger.html">Despliegue Hostinger</a>
+      <a href="07-plan-de-pruebas.html">Plan de pruebas</a>
+      <a href="08-plan-de-despliegue.html" aria-current="page">Plan de despliegue</a>
+    </nav>
+    <p class="lateral-pie">ETERnidad<br>a un solo CLACK</p>
+  </aside>
+
+  <main id="contenido" class="doc">
+    <header class="cabecera">
+      <h1>Plan de despliegue</h1>
+      <p class="lede">De local a producción, con reversa definida</p>
+    </header>
+    <article class="md"><p><strong>Estado hoy:</strong> todo corre en Docker local. Nada está publicado.
+<strong>Destino:</strong> VPS de Hostinger, donde ya está el dominio.</p>
+<hr>
+<h2>1. Lo primero: GitHub Pages no puede alojar esta plataforma</h2>
+<p>Conviene decirlo antes de planear nada, porque cambia la ruta entera.</p>
+<p>GitHub Pages sirve <strong>archivos estáticos</strong>. Esta plataforma necesita, como mínimo:</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Pieza</th>
+<th>Por qué Pages no la sirve</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>API en Node (Fastify)</td>
+<td>Pages no ejecuta código de servidor</td>
+</tr>
+<tr>
+<td>PostgreSQL</td>
+<td>No hay base de datos</td>
+</tr>
+<tr>
+<td>Redis y colas</td>
+<td>No hay procesos persistentes</td>
+</tr>
+<tr>
+<td>MinIO / almacenamiento de fotos</td>
+<td>No hay almacenamiento de objetos ni URLs firmadas</td>
+</tr>
+<tr>
+<td>Sesiones con cookies <code>httpOnly</code></td>
+<td>Requieren un servidor que las emita y valide</td>
+</tr>
+<tr>
+<td>Webhooks de Wompi</td>
+<td>Necesitan un endpoint que reciba POST</td>
+</tr>
+<tr>
+<td>Servidor de correo</td>
+<td>Necesita puertos SMTP</td>
+</tr>
+</tbody></table></div>
+<p>Publicar solo el frontend en Pages daría una página que carga y <strong>falla en la primera petición</strong>:
+sin catálogo, sin fotógrafos, sin login. Peor que no publicar nada, porque parece roto.</p>
+<h3>1.1 Lo que Pages <strong>sí</strong> resuelve, y bien</h3>
+<p>Un sitio público con la <strong>documentación y la hoja de contacto visual</strong>: URL para compartir con el
+cliente hoy mismo, sin infraestructura, sin costo. Eso es lo que se configura en §2.</p>
+<h3>1.2 Alternativas si se quiere la app pública antes del VPS</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Opción</th>
+<th>Qué implica</th>
+<th>Veredicto</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Hostinger VPS</strong> (el plan)</td>
+<td>~USD 15–20/mes, todo en una máquina, correo propio posible</td>
+<td><strong>Recomendada.</strong> Es el destino real</td>
+</tr>
+<tr>
+<td>Frontend en Pages + API en Render/Fly/Railway</td>
+<td>Gratis o casi, pero parte la app en dos proveedores, CORS entre dominios, la capa gratuita se duerme, y el correo propio sigue siendo imposible</td>
+<td>Solo para una demo temporal</td>
+</tr>
+<tr>
+<td>Todo en Render/Railway</td>
+<td>Un proveedor, despliegue simple</td>
+<td>Costo similar al VPS con menos control y sin correo propio</td>
+</tr>
+</tbody></table></div>
+<blockquote>
+<p>Si la meta es <strong>enseñar el producto ya</strong>, el sitio de Pages con la hoja de contacto lo logra hoy.
+Si la meta es <strong>que alguien lo use</strong>, el camino es el VPS.</p>
+</blockquote>
+<hr>
+<h2>2. Fase A — Repositorio y sitio público (hoy, sin costo)</h2>
+<h3>2.1 Repositorio</h3>
+<pre><code class="language-bash">git init -b main
+git add -A
+git commit -m &quot;…&quot;
+gh repo create eterclack --private --source=. --push
+</code></pre>
+<p><strong>Qué NO se sube:</strong></p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Archivo</th>
+<th>Motivo</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>.env</code></td>
+<td>Secretos. Solo se versiona <code>.env.example</code></td>
+</tr>
+<tr>
+<td><code>base/*.pdf</code></td>
+<td>La cotización está marcada «Propuesta confidencial»: precios, hitos de pago y condiciones comerciales</td>
+</tr>
+<tr>
+<td><code>node_modules/</code>, <code>dist/</code></td>
+<td>Regenerables</td>
+</tr>
+</tbody></table></div>
+<blockquote>
+<p><strong>Privado por defecto.</strong> Se puede abrir después; lo que se publica no se puede despublicar del
+todo (queda en cachés, forks y espejos).</p>
+</blockquote>
+<h3>2.2 Sitio de documentación en Pages</h3>
+<p>Un flujo de GitHub Actions construye un sitio estático con la documentación y la hoja de contacto,
+y lo publica en <code>https://&lt;usuario&gt;.github.io/eterclack/</code>.</p>
+<p>Contenido del sitio:</p>
+<ul>
+<li>Índice con el estado por fases</li>
+<li>Los ocho documentos de <code>docs/</code> renderizados</li>
+<li>La hoja de contacto con las 14 pantallas</li>
+</ul>
+<p><strong>No</strong> incluye la aplicación: eso sería la página rota de §1.</p>
+<h3>2.3 Integración continua</h3>
+<p>El mismo repositorio corre en cada push:</p>
+<pre><code>lint → typecheck → unitarias → integración (Postgres efímero) → build
+</code></pre>
+<p>Con eso, un cambio que rompa algo se detiene antes de llegar al VPS.</p>
+<hr>
+<h2>3. Fase B — Producción en Hostinger</h2>
+<h3>3.1 Requisito: VPS, no hosting compartido</h3>
+<p>El compartido no ejecuta Node persistente, ni Docker, ni PostgreSQL, ni un MTA.</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Recurso</th>
+<th>Mínimo</th>
+<th>Recomendado</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Plan</td>
+<td>KVM 2</td>
+<td><strong>KVM 4</strong> (4 vCPU / 16 GB / 200 GB)</td>
+</tr>
+<tr>
+<td>SO</td>
+<td>Ubuntu 24.04 LTS</td>
+<td>Ubuntu 24.04 LTS</td>
+</tr>
+<tr>
+<td>IP</td>
+<td>IPv4 dedicada</td>
+<td>IPv4 dedicada <strong>con PTR</strong></td>
+</tr>
+</tbody></table></div>
+<p>El disco es la restricción real: las fotos lo llenan. Ver <a href="01-arquitectura.html">01 §4.1</a>.</p>
+<h3>3.2 Topología de entornos</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Entorno</th>
+<th>Dónde</th>
+<th>Base de datos</th>
+<th>Wompi</th>
+<th>Para qué</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>local</strong></td>
+<td>Docker en el portátil</td>
+<td>efímera</td>
+<td>sandbox</td>
+<td>Desarrollo</td>
+</tr>
+<tr>
+<td><strong>staging</strong></td>
+<td><code>staging.eterclack.com</code>, mismo VPS</td>
+<td>propia</td>
+<td>sandbox</td>
+<td>Ensayo previo a cada release</td>
+</tr>
+<tr>
+<td><strong>producción</strong></td>
+<td><code>eterclack.com</code></td>
+<td>propia</td>
+<td>producción</td>
+<td>Real</td>
+</tr>
+</tbody></table></div>
+<p>Staging comparte máquina pero <strong>no</strong> comparte base de datos ni buckets. Un <code>TRUNCATE</code> en staging no
+puede tocar producción.</p>
+<h3>3.3 Secuencia de puesta en marcha</h3>
+<p>Ocho pasos, en este orden. El orden importa: el correo se prepara antes de tocar el MX, y el MX se
+toca antes de abrir el registro público.</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Paso</th>
+<th>Verificación de salida</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Provisión y endurecimiento (UFW, SSH por llave, fail2ban, parches automáticos)</td>
+<td><code>ssh</code> solo con llave; puertos cerrados salvo 22/80/443/correo</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Docker, Caddy y TLS</td>
+<td><code>https://staging.eterclack.com</code> con certificado válido</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Despliegue de staging + migraciones + semilla</td>
+<td>Recorridos E2E en verde contra staging</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Backups y restauración <strong>probada</strong></td>
+<td>Restaurar en limpio y que la app levante con esos datos</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Monitoreo y alertas</td>
+<td>Uptime Kuma avisa al tumbar un contenedor a propósito</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>Verificar el puerto 25 saliente</strong></td>
+<td><code>telnet gmail-smtp-in.l.google.com 25</code> conecta</td>
+</tr>
+<tr>
+<td>7</td>
+<td>DNS, PTR, SPF/DKIM/DMARC, cutover de MX</td>
+<td>10/10 en mail-tester; correo llega a Gmail y Outlook</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Producción + Wompi real + piloto</td>
+<td>Una reserva y un pago reales, de punta a punta</td>
+</tr>
+</tbody></table></div>
+<blockquote>
+<p>El paso 6 es un punto de no retorno. Si el puerto 25 saliente está cerrado, el servidor de correo
+propio no es viable y hay que pasar a <code>MAIL_TRANSPORT=relay</code>. Comprobarlo <strong>antes</strong> de
+comprometer fechas, no después.</p>
+</blockquote>
+<h3>3.4 Despliegue continuo</h3>
+<pre><code>push a main
+  → CI: lint · typecheck · pruebas · build
+  → imágenes a GHCR
+  → SSH al VPS
+  → BACKUP de la base de datos          ← nunca se omite
+  → docker compose pull &amp;&amp; up -d
+  → prisma migrate deploy
+  → healthcheck
+  → si falla → rollback a la imagen anterior
+</code></pre>
+<p><strong>Reglas de migración.</strong> Toda migración es compatible hacia atrás, en tres despliegues:</p>
+<ol>
+<li>Agregar la columna nueva (nullable o con valor por defecto).</li>
+<li>Desplegar el código que la escribe y la lee.</li>
+<li>Migrar los datos, y solo entonces eliminar la vieja.</li>
+</ol>
+<p>Nunca un <code>DROP</code> en el mismo despliegue que introduce el reemplazo: si hay que revertir, la versión
+anterior encuentra la base sin la columna que necesita.</p>
+<h3>3.5 Backups</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Qué</th>
+<th>Cómo</th>
+<th>Frecuencia</th>
+<th>Retención</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>PostgreSQL</td>
+<td><code>pg_dump</code> → <code>restic</code> → Backblaze B2</td>
+<td>Diario 03:00</td>
+<td>30 diarios, 12 mensuales</td>
+</tr>
+<tr>
+<td>Fotos (MinIO)</td>
+<td><code>rclone sync</code> → B2</td>
+<td>Diario 04:00</td>
+<td>Versionado 30 días</td>
+</tr>
+<tr>
+<td>Config y claves DKIM</td>
+<td><code>restic</code> → B2</td>
+<td>Semanal</td>
+<td>12 semanas</td>
+</tr>
+<tr>
+<td>VPS completo</td>
+<td>Snapshot de Hostinger</td>
+<td>Semanal</td>
+<td>Según plan</td>
+</tr>
+</tbody></table></div>
+<blockquote>
+<p><strong>Un backup no probado no es un backup.</strong> La restauración se ensaya al desplegar y luego cada
+trimestre. Si nunca se restauró, lo que hay es un archivo, no un respaldo.</p>
+</blockquote>
+<hr>
+<h2>4. Lista de verificación antes de abrir</h2>
+<h3>Configuración</h3>
+<ul>
+<li><input disabled="" type="checkbox"> <code>.env</code> de producción completo, permisos 600, sin valores de ejemplo</li>
+<li><input disabled="" type="checkbox"> Llaves Wompi de <strong>producción</strong>; la guarda de arranque rechaza mezclar ambientes</li>
+<li><input disabled="" type="checkbox"> URL de eventos de producción <strong>distinta</strong> de la de sandbox</li>
+<li><input disabled="" type="checkbox"> Pagos a Terceros activo (trámite del representante legal)</li>
+<li><input disabled="" type="checkbox"> <code>PAYOUTS_REQUIRE_ADMIN_APPROVAL=true</code></li>
+<li><input disabled="" type="checkbox"> Comisión, ventana de retención y mínimo cargados</li>
+<li><input disabled="" type="checkbox"> Textos legales definitivos publicados</li>
+</ul>
+<h3>Seguridad</h3>
+<ul>
+<li><input disabled="" type="checkbox"> UFW, fail2ban y CrowdSec activos</li>
+<li><input disabled="" type="checkbox"> SSH sin contraseña ni acceso root</li>
+<li><input disabled="" type="checkbox"> Consola de MinIO <strong>no</strong> expuesta</li>
+<li><input disabled="" type="checkbox"> Postgres y Redis sin puertos publicados hacia afuera</li>
+<li><input disabled="" type="checkbox"> Cabeceras verificadas en securityheaders.com</li>
+<li><input disabled="" type="checkbox"> <code>npm audit</code> sin vulnerabilidades altas</li>
+<li><input disabled="" type="checkbox"> Historial de git escaneado con <code>gitleaks</code></li>
+</ul>
+<h3>Datos</h3>
+<ul>
+<li><input disabled="" type="checkbox"> Migraciones aplicadas</li>
+<li><input disabled="" type="checkbox"> Datos de prueba <strong>eliminados</strong> de producción</li>
+<li><input disabled="" type="checkbox"> Backup ejecutado y <strong>restauración verificada</strong></li>
+<li><input disabled="" type="checkbox"> Fotógrafos reales cargados con KYC bancario</li>
+</ul>
+<h3>Correo</h3>
+<ul>
+<li><input disabled="" type="checkbox"> PTR aplicado y confirmado</li>
+<li><input disabled="" type="checkbox"> SPF, DKIM y DMARC publicados; DMARC en <code>p=none</code></li>
+<li><input disabled="" type="checkbox"> Calentamiento de IP en curso</li>
+<li><input disabled="" type="checkbox"> Rebotes leyéndose</li>
+<li><input disabled="" type="checkbox"> Las plantillas revisadas en Gmail, Outlook y móvil</li>
+</ul>
+<h3>Producto</h3>
+<ul>
+<li><input disabled="" type="checkbox"> E2E en verde contra producción</li>
+<li><input disabled="" type="checkbox"> PWA instalable desde el dominio real</li>
+<li><input disabled="" type="checkbox"> 0 desbordes en las 5 anchuras</li>
+<li><input disabled="" type="checkbox"> Pantalla 404 y de error probadas</li>
+</ul>
+<hr>
+<h2>5. Reversa</h2>
+<p>Cada modo de fallo tiene una salida definida <strong>antes</strong> de necesitarla.</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Falla</th>
+<th>Acción</th>
+<th>Tiempo</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Despliegue roto</td>
+<td>Rollback automático a la imagen anterior</td>
+<td>&lt; 2 min</td>
+</tr>
+<tr>
+<td>Migración destructiva</td>
+<td>Restaurar el backup previo a la migración</td>
+<td>~15 min</td>
+</tr>
+<tr>
+<td>Correo cayendo en spam</td>
+<td><code>MAIL_TRANSPORT=relay</code> + credenciales externas</td>
+<td>&lt; 2 min</td>
+</tr>
+<tr>
+<td>Dispersión con error</td>
+<td><code>PAYOUTS_ENABLED=false</code>; liquidación manual</td>
+<td>Inmediato</td>
+</tr>
+<tr>
+<td>Wompi caído</td>
+<td>Los pagos quedan pendientes; la conciliación los recupera</td>
+<td>Automático</td>
+</tr>
+<tr>
+<td>Disco lleno</td>
+<td>Apuntar <code>S3_ENDPOINT</code> a Backblaze B2 y migrar con <code>rclone</code></td>
+<td>~1 h</td>
+</tr>
+<tr>
+<td>VPS comprometido</td>
+<td>Restaurar snapshot, <strong>rotar todos los secretos</strong>, revisar auditoría</td>
+<td>~2 h</td>
+</tr>
+</tbody></table></div>
+<p>Los interruptores (<code>MAIL_TRANSPORT</code>, <code>PAYOUTS_ENABLED</code>) existen justamente para esto: son variables
+de entorno, no cambios de código. Se activan sin desplegar.</p>
+<hr>
+<h2>6. Operación posterior</h2>
+<p>Trabajo recurrente que <strong>no</strong> existía en el plan sobre Cloudflare y ahora es responsabilidad propia:</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Frecuencia</th>
+<th>Tarea</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Diaria</td>
+<td>Alertas, cola de correo, pagos pendientes</td>
+</tr>
+<tr>
+<td>Semanal</td>
+<td>Reportes DMARC, listas negras, consumo de disco, conciliación</td>
+</tr>
+<tr>
+<td>Quincenal</td>
+<td>Ejecutar y verificar la corrida de dispersión</td>
+</tr>
+<tr>
+<td>Mensual</td>
+<td>Parches del sistema y actualización de imágenes</td>
+</tr>
+<tr>
+<td>Trimestral</td>
+<td><strong>Prueba de restauración</strong>, rotación de claves DKIM y secretos</td>
+</tr>
+</tbody></table></div>
+<blockquote>
+<p>Los planes de mantenimiento de la cotización (COP $350.000 y $650.000/mes) se dimensionaron para
+infraestructura administrada. Con VPS propio y servidor de correo, este trabajo sube — <strong>hay que
+revisarlos antes de firmar el soporte</strong>.</p>
+</blockquote>
+<hr>
+<h2>7. Orden recomendado</h2>
+<ol>
+<li><strong>Hoy:</strong> repositorio privado en GitHub + sitio de documentación en Pages. Sin costo, URL para compartir.</li>
+<li><strong>Antes de la Fase 5:</strong> CI con pruebas automatizadas. Cuanto más código haya, más caro es agregarla.</li>
+<li><strong>Cuando Wompi confirme la activación:</strong> contratar el VPS y montar staging.</li>
+<li><strong>Con staging estable y el correo verificado:</strong> producción y piloto.</li>
+</ol>
+<p>Contratar el VPS antes de tener algo que desplegar solo agrega una factura mensual y una máquina
+que hay que parchear.</p>
+</article>
+  </main>
+</div>
+</body>
+</html>

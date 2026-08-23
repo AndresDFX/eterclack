@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1D1D1B">
+<title>Modelo de datos · EterClack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="saltar" href="#contenido">Saltar al contenido</a>
+
+<div class="marco">
+  <aside class="lateral">
+    <a class="marca" href="index.html" aria-label="EterClack, inicio">
+      <span class="marca-tipo">eter<br>clack</span>
+      <span class="marca-esq"><i class="esq tr"></i><i class="esq br"></i></span>
+    </a>
+    <nav>
+      <a href="index.html">Inicio</a>
+      <a href="interfaz.html">La interfaz</a>
+      <a href="00-plan-implementacion.html">Plan de implementación</a>
+      <a href="01-arquitectura.html">Arquitectura</a>
+      <a href="02-entorno-local.html">Entorno local</a>
+      <a href="03-servidor-correo.html">Servidor de correo</a>
+      <a href="04-wompi.html">Wompi</a>
+      <a href="05-modelo-datos.html" aria-current="page">Modelo de datos</a>
+      <a href="06-despliegue-hostinger.html">Despliegue Hostinger</a>
+      <a href="07-plan-de-pruebas.html">Plan de pruebas</a>
+      <a href="08-plan-de-despliegue.html">Plan de despliegue</a>
+    </nav>
+    <p class="lateral-pie">ETERnidad<br>a un solo CLACK</p>
+  </aside>
+
+  <main id="contenido" class="doc">
+    <header class="cabecera">
+      <h1>Modelo de datos</h1>
+      <p class="lede">Entidades, estados, libro contable</p>
+    </header>
+    <article class="md"><p>PostgreSQL 16 + Prisma 6. Reemplaza el diseño sobre Cloudflare D1 de la cotización.</p>
+<h2>0. Convenciones</h2>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Regla</th>
+<th>Motivo</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Identificadores UUID v7</td>
+<td>Ordenables por tiempo, no adivinables, seguros para exponer en URLs</td>
+</tr>
+<tr>
+<td>Dinero: <code>BigInt</code> en <strong>centavos</strong></td>
+<td>Cero errores de punto flotante. <code>COP $50.000</code> = <code>5000000</code></td>
+</tr>
+<tr>
+<td>Tasas: <code>Int</code> en <strong>puntos base</strong></td>
+<td>15 % = <code>1500</code>. Sin decimales en ninguna parte</td>
+</tr>
+<tr>
+<td>Fechas: <code>timestamptz</code> en UTC</td>
+<td>Se convierte a <code>America/Bogota</code> solo al presentar</td>
+</tr>
+<tr>
+<td>Borrado: <code>deleted_at</code> lógico</td>
+<td>Nada se borra de verdad; hay trazabilidad legal que preservar</td>
+</tr>
+<tr>
+<td>Auditoría: <code>created_at</code>, <code>updated_at</code>, <code>created_by</code></td>
+<td>En toda tabla operativa</td>
+</tr>
+<tr>
+<td>Enums: en la base de datos</td>
+<td>Un estado inválido debe ser imposible, no solo improbable</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h2>1. Máquinas de estado</h2>
+<p>Se conservan exactamente las de la cotización, con dos añadidos por la dispersión.</p>
+<h3>Solicitud</h3>
+<pre><code>nueva → en_revision → propuesta → aceptada
+                   ↘ rechazada
+                   ↘ vencida
+</code></pre>
+<h3>Orden</h3>
+<pre><code>borrador → contrato_aceptado → pago_pendiente → reservada
+        → en_produccion → seleccion → entrega_lista → completada
+                                                   ↘ cancelada
+</code></pre>
+<h3>Pago</h3>
+<pre><code>iniciado → pendiente → aprobado
+                    ↘ rechazado → (reintento con NUEVA referencia)
+                    ↘ expirado
+         aprobado → reembolsado  (operación administrativa, asiento propio)
+</code></pre>
+<h3>Galería</h3>
+<pre><code>borrador → publicada → seleccion_cerrada → entrega_final → archivada
+</code></pre>
+<h3>Saldo del fotógrafo <em>(reemplaza «Liquidación» de la cotización)</em></h3>
+<pre><code>retenido → disponible → programado → en_proceso → pagado
+                                               ↘ fallido → disponible
+        cualquiera → ajustado  (solo admin, motivo obligatorio)
+</code></pre>
+<h3>Corrida de dispersión <em>(nuevo)</em></h3>
+<pre><code>borrador → aprobada → enviada → parcial → completada
+                             ↘ error → reintentada
+</code></pre>
+<p><strong>Regla transversal:</strong> toda transición se ejecuta dentro de una transacción de base de datos, valida
+que el estado de origen sea legal y escribe en <code>audit_log</code>. Nunca un <code>UPDATE</code> suelto sobre una
+columna de estado.</p>
+<hr>
+<h2>2. Esquema Prisma (núcleo)</h2>
+<pre><code class="language-prisma">// ─── Identidad ────────────────────────────────────────────────
+enum Role { CLIENT PHOTOGRAPHER ADMIN }
+
+model User {
+  id                String    @id @default(dbgenerated(&quot;uuid_generate_v7()&quot;)) @db.Uuid
+  email             String    @unique
+  emailVerifiedAt   DateTime?
+  passwordHash      String
+  role              Role
+  fullName          String
+  phone             String?
+  status            UserStatus @default(ACTIVE)   // ACTIVE SUSPENDED DELETED
+  consentAcceptedAt DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  photographer      PhotographerProfile?
+  sessions          Session[]
+  @@index([role, status])
+}
+
+model Session {
+  id            String   @id @db.Uuid
+  userId        String   @db.Uuid
+  refreshHash   String                       // el token nunca se guarda en claro
+  userAgent     String?
+  ip            String?
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  user          User     @relation(fields: [userId], references: [id])
+  @@index([userId, revokedAt])
+}
+
+// ─── Fotógrafo ────────────────────────────────────────────────
+enum PhotographerStatus { PENDING APPROVED REJECTED SUSPENDED }
+
+model PhotographerProfile {
+  id                String   @id @db.Uuid
+  userId            String   @unique @db.Uuid
+  bio               String?
+  status            PhotographerStatus @default(PENDING)
+  approvedAt        DateTime?
+  approvedBy        String?  @db.Uuid
+  rejectionReason   String?
+  priceFromCents    BigInt?
+  commissionBps     Int?                      // nulo = usa la comisión global
+
+  // KYC bancario — sin esto no hay dispersión (ver 04-wompi §B.7)
+  legalIdType       String?                   // CC | NIT | CE
+  legalIdNumber     String?
+  bankId            String?                   // catálogo de GET /banks
+  bankAccountType   String?                   // SAVINGS | CHECKING
+  bankAccountNumber String?
+  bankHolderName    String?
+  withholdingBps    Int      @default(0)      // retención; ver 04-wompi §C
+  bankVerifiedAt    DateTime?
+  bankVerifiedBy    String?  @db.Uuid
+  payoutsFrozen     Boolean  @default(false)  // se activa al cambiar datos bancarios
+
+  user              User     @relation(fields: [userId], references: [id])
+  specialties       PhotographerSpecialty[]
+  zones             PhotographerZone[]
+  packages          Package[]
+  availability      AvailabilityBlock[]
+  @@index([status])
+}
+
+model Specialty { id String @id @db.Uuid  slug String @unique  name String  active Boolean @default(true) }
+model Zone      { id String @id @db.Uuid  slug String @unique  name String  department String  active Boolean @default(true) }
+
+model Package {
+  id                String  @id @db.Uuid
+  photographerId    String  @db.Uuid
+  name              String
+  description       String?
+  priceCents        BigInt
+  maxSelectablePhotos Int                     // límite de selección del cliente
+  deliveryDays      Int
+  active            Boolean @default(true)
+}
+
+model AvailabilityBlock {
+  id             String   @id @db.Uuid
+  photographerId String   @db.Uuid
+  date           DateTime @db.Date
+  available      Boolean
+  reason         String?
+  orderId        String?  @db.Uuid            // bloqueo por reserva confirmada
+  @@unique([photographerId, date])
+}
+
+// ─── Solicitud y orden ────────────────────────────────────────
+model Request {
+  id             String   @id @db.Uuid
+  clientId       String   @db.Uuid
+  photographerId String   @db.Uuid
+  status         RequestStatus @default(NUEVA)
+  eventDate      DateTime @db.Date
+  zoneId         String   @db.Uuid
+  specialtyId    String   @db.Uuid
+  packageId      String?  @db.Uuid
+  budgetCents    BigInt?
+  description    String
+  proposalCents  BigInt?                      // contrapropuesta del fotógrafo
+  proposalNote   String?
+  expiresAt      DateTime
+  @@index([photographerId, status])
+  @@index([clientId, status])
+}
+
+model Order {
+  id                String   @id @db.Uuid
+  code              String   @unique          // ETC-2026-000123, visible al usuario
+  requestId         String   @unique @db.Uuid
+  clientId          String   @db.Uuid
+  photographerId    String   @db.Uuid
+  status            OrderStatus @default(BORRADOR)
+  eventDate         DateTime @db.Date
+  amountCents       BigInt                    // fuente de verdad del monto a cobrar
+  commissionBps     Int                       // congelada al crear la orden
+  commissionCents   BigInt
+  photographerCents BigInt                    // amountCents − commissionCents
+  currency          String   @default(&quot;COP&quot;)
+  deliveryReadyAt   DateTime?                 // arranca la ventana de retención
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+  cancelReason      String?
+  @@index([status, eventDate])
+}
+</code></pre>
+<blockquote>
+<p><strong><code>commissionBps</code> se congela en la orden.</strong> Si mañana el admin cambia la comisión global de 15 % a
+18 %, las órdenes existentes conservan la que se pactó. Recalcular históricos sería, además de un
+error de software, un problema contractual.</p>
+</blockquote>
+<pre><code class="language-prisma">// ─── Contrato ─────────────────────────────────────────────────
+model ContractTemplate {
+  id        String   @id @db.Uuid
+  version   Int      @unique
+  bodyMd    String                            // markdown con {{variables}}
+  activeFrom DateTime
+}
+
+model ContractAcceptance {
+  id            String   @id @db.Uuid
+  orderId       String   @unique @db.Uuid
+  templateVersion Int
+  renderedBody  String                        // texto EXACTO que el cliente vio
+  pdfKey        String                        // objeto en MinIO
+  acceptedByName String
+  acceptedAt    DateTime
+  ip            String
+  userAgent     String
+}
+</code></pre>
+<blockquote>
+<p><code>renderedBody</code> guarda el texto ya resuelto, no la plantilla. Es la única forma de probar
+—meses después, ante un reclamo— qué aceptó exactamente esa persona ese día.</p>
+</blockquote>
+<pre><code class="language-prisma">// ─── Pagos (Wompi recaudo) ────────────────────────────────────
+model Payment {
+  id                 String   @id @db.Uuid
+  orderId            String   @db.Uuid
+  attempt            Int
+  reference          String   @unique         // ETC-{orderId}-{attempt}-{nanoid}
+  amountCents        BigInt
+  status             PaymentStatus @default(INICIADO)
+  wompiTransactionId String?  @unique
+  paymentMethod      String?                  // CARD PSE NEQUI BANCOLOMBIA_TRANSFER…
+  approvedAt         DateTime?
+  rawResponse        Json?
+  @@index([orderId, status])
+}
+
+model WompiEvent {
+  id            String   @id @db.Uuid
+  eventType     String
+  transactionId String?
+  status        String?
+  timestamp     BigInt
+  checksumValid Boolean
+  payload       Json                          // evento crudo, íntegro
+  processedAt   DateTime?
+  receivedAt    DateTime @default(now())
+  @@unique([transactionId, status, timestamp])   // ← la idempotencia vive aquí
+  @@index([eventType, receivedAt])
+}
+</code></pre>
+<pre><code class="language-prisma">// ─── Libro contable y dispersión ──────────────────────────────
+enum LedgerEntryType {
+  ORDER_PAYMENT          // + entra dinero del cliente
+  PLATFORM_FEE           // − comisión de EterClack
+  PHOTOGRAPHER_PAYABLE   // − deuda con el fotógrafo
+  PAYOUT_SETTLEMENT      // + se salda al dispersar
+  REFUND                 // − devolución al cliente
+  ADJUSTMENT             // ± corrección manual del admin
+  WITHHOLDING            // − retención tributaria
+}
+
+model LedgerEntry {
+  id             String   @id @db.Uuid
+  type           LedgerEntryType
+  orderId        String?  @db.Uuid
+  photographerId String?  @db.Uuid
+  paymentId      String?  @db.Uuid
+  payoutItemId   String?  @db.Uuid
+  amountCents    BigInt                       // firmado: + entra, − sale
+  balanceState   BalanceState?                // RETENIDO DISPONIBLE PROGRAMADO EN_PROCESO PAGADO FALLIDO AJUSTADO
+  availableAt    DateTime?                    // fin de la ventana de retención
+  description    String
+  createdBy      String?  @db.Uuid
+  createdAt      DateTime @default(now())
+  @@index([photographerId, balanceState])
+  @@index([orderId])
+}
+
+model PayoutRun {
+  id           String   @id @db.Uuid
+  code         String   @unique               // PR-2026-W34
+  status       PayoutRunStatus @default(BORRADOR)
+  totalCents   BigInt
+  itemCount    Int
+  approvedBy   String?  @db.Uuid
+  approvedAt   DateTime?
+  wompiBatchId String?
+  wompiStatus  String?                        // PENDING PARTIAL_PAYMENT TOTAL_PAYMENT
+  sentAt       DateTime?
+  closedAt     DateTime?
+  items        PayoutItem[]
+}
+
+model PayoutItem {
+  id             String   @id @db.Uuid
+  runId          String   @db.Uuid
+  photographerId String   @db.Uuid
+  amountCents    BigInt
+  reference      String   @unique             // PO-2026-000123
+  idempotencyKey String   @unique             // payout:{runId}:{photographerId}:{amountCents}
+  status         PayoutItemStatus @default(PENDIENTE)
+  failureReason  String?
+  retryCount     Int      @default(0)
+  wompiPayoutId  String?
+  paidAt         DateTime?
+  rawResponse    Json?
+  bankSnapshot   Json                         // datos bancarios usados EN ESE MOMENTO
+  run            PayoutRun @relation(fields: [runId], references: [id])
+  @@unique([runId, photographerId])           // ← nunca dos pagos al mismo fotógrafo en una corrida
+}
+</code></pre>
+<blockquote>
+<p><code>bankSnapshot</code> congela los datos bancarios usados. Si el fotógrafo los cambia después, sigue siendo
+posible saber a qué cuenta se envió realmente cada peso.</p>
+</blockquote>
+<pre><code class="language-prisma">// ─── Galerías y entrega ───────────────────────────────────────
+model Gallery {
+  id          String   @id @db.Uuid
+  orderId     String   @unique @db.Uuid
+  status      GalleryStatus @default(BORRADOR)
+  publishedAt DateTime?
+  closedAt    DateTime?
+  photos      Photo[]
+}
+
+model Photo {
+  id           String   @id @db.Uuid
+  galleryId    String   @db.Uuid
+  kind         PhotoKind                      // PROOF | FINAL
+  originalKey  String                         // projects/{orderId}/originals/{uuid}.jpg
+  thumbKey     String?
+  previewKey   String?
+  filename     String
+  sizeBytes    BigInt
+  mimeType     String
+  width        Int?
+  height       Int?
+  sortOrder    Int      @default(0)
+  processedAt  DateTime?
+  @@index([galleryId, kind, sortOrder])
+}
+
+model Selection {
+  id          String   @id @db.Uuid
+  galleryId   String   @unique @db.Uuid
+  submittedAt DateTime?
+  items       SelectionItem[]
+}
+
+model SelectionItem {
+  id          String  @id @db.Uuid
+  selectionId String  @db.Uuid
+  photoId     String  @db.Uuid
+  favorite    Boolean @default(false)
+  finalPick   Boolean @default(false)
+  comment     String?
+  @@unique([selectionId, photoId])
+}
+
+model Download {
+  id         String   @id @db.Uuid
+  orderId    String   @db.Uuid
+  userId     String   @db.Uuid
+  photoId    String?  @db.Uuid
+  kind       String                           // SINGLE | ZIP
+  ip         String
+  createdAt  DateTime @default(now())
+  @@index([orderId, createdAt])
+}
+
+// ─── Correo ───────────────────────────────────────────────────
+model Email {
+  id         String   @id @db.Uuid
+  template   String
+  toAddress  String
+  subject    String
+  status     EmailStatus @default(QUEUED)     // QUEUED SENT FAILED SUPPRESSED
+  priority   Int      @default(5)
+  messageId  String?
+  attempts   Int      @default(0)
+  error      String?
+  sentAt     DateTime?
+  @@index([status, priority, createdAt])
+}
+
+model EmailSuppression {
+  address   String   @id
+  reason    String                            // HARD_BOUNCE SOFT_BOUNCE_LIMIT COMPLAINT MANUAL
+  detail    String?
+  permanent Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+// ─── Auditoría y configuración ────────────────────────────────
+model AuditLog {
+  id         String   @id @db.Uuid
+  actorId    String?  @db.Uuid
+  actorRole  Role?
+  action     String                           // order.status_changed, payout.approved…
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+model Setting {
+  key       String   @id                      // platform_commission_bps, payout_hold_days…
+  value     Json
+  updatedBy String?  @db.Uuid
+  updatedAt DateTime @updatedAt
+}
+</code></pre>
+<hr>
+<h2>3. Invariantes que las pruebas deben verificar</h2>
+<p>Estas son las afirmaciones que, si dejan de ser ciertas, significan que hay dinero o datos mal:</p>
+<ol>
+<li><strong>El libro cuadra.</strong> Para cada orden, <code>SUM(ledger_entries.amount_cents) = 0</code> una vez liquidada.</li>
+<li><strong>La comisión cuadra.</strong> <code>order.amountCents = order.commissionCents + order.photographerCents</code>, siempre.</li>
+<li><strong>No hay pago doble.</strong> <code>payout_items</code> no admite dos filas con la misma <code>idempotencyKey</code>, ni dos
+con el mismo <code>(runId, photographerId)</code>.</li>
+<li><strong>La retención se respeta.</strong> Ningún saldo pasa a <code>disponible</code> antes de
+<code>deliveryReadyAt + PAYOUT_HOLD_DAYS</code>.</li>
+<li><strong>Sin KYC no hay dinero.</strong> Ningún <code>payout_item</code> para un fotógrafo con <code>bankVerifiedAt = null</code> o
+<code>payoutsFrozen = true</code>.</li>
+<li><strong>El webhook es la única autoridad.</strong> Ninguna orden llega a <code>reservada</code> sin un <code>WompiEvent</code> con
+<code>checksumValid = true</code> y estado <code>APPROVED</code>.</li>
+<li><strong>El contrato es inmutable.</strong> <code>ContractAcceptance</code> nunca se actualiza tras crearse.</li>
+<li><strong>Aislamiento de galerías.</strong> Una consulta de fotos siempre filtra por propiedad del recurso; un
+<code>photoId</code> válido de otra orden devuelve 403, no la foto.</li>
+<li><strong>Toda transición queda registrada.</strong> Cada cambio de estado tiene su fila en <code>audit_log</code>.</li>
+<li><strong>Nunca se envía a una dirección suprimida.</strong> <code>MailService</code> consulta <code>EmailSuppression</code> antes de
+encolar.</li>
+</ol>
+<hr>
+<h2>4. Índices y rendimiento</h2>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Consulta</th>
+<th>Índice</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Búsqueda de fotógrafos con filtros</td>
+<td><code>GIN</code> sobre especialidades y zonas; parcial sobre <code>status = APPROVED</code></td>
+</tr>
+<tr>
+<td>Tablero de leads del fotógrafo</td>
+<td><code>(photographerId, status)</code></td>
+</tr>
+<tr>
+<td>Órdenes por estado en el admin</td>
+<td><code>(status, eventDate)</code></td>
+</tr>
+<tr>
+<td>Saldo disponible de un fotógrafo</td>
+<td><code>(photographerId, balanceState)</code></td>
+</tr>
+<tr>
+<td>Fotos de una galería</td>
+<td><code>(galleryId, kind, sortOrder)</code></td>
+</tr>
+<tr>
+<td>Búsqueda de eventos Wompi</td>
+<td><code>(transactionId)</code>, <code>(eventType, receivedAt)</code></td>
+</tr>
+<tr>
+<td>Cola de correo</td>
+<td><code>(status, priority, createdAt)</code></td>
+</tr>
+</tbody></table></div>
+<p>Búsqueda de texto: <code>pg_trgm</code> sobre nombre y biografía. Suficiente para el MVP; si el catálogo crece
+mucho, el reemplazo natural es un índice externo, no un rediseño del esquema.</p>
+</article>
+  </main>
+</div>
+</body>
+</html>

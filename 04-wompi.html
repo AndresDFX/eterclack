@@ -1,0 +1,759 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1D1D1B">
+<title>Wompi · EterClack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="saltar" href="#contenido">Saltar al contenido</a>
+
+<div class="marco">
+  <aside class="lateral">
+    <a class="marca" href="index.html" aria-label="EterClack, inicio">
+      <span class="marca-tipo">eter<br>clack</span>
+      <span class="marca-esq"><i class="esq tr"></i><i class="esq br"></i></span>
+    </a>
+    <nav>
+      <a href="index.html">Inicio</a>
+      <a href="interfaz.html">La interfaz</a>
+      <a href="00-plan-implementacion.html">Plan de implementación</a>
+      <a href="01-arquitectura.html">Arquitectura</a>
+      <a href="02-entorno-local.html">Entorno local</a>
+      <a href="03-servidor-correo.html">Servidor de correo</a>
+      <a href="04-wompi.html" aria-current="page">Wompi</a>
+      <a href="05-modelo-datos.html">Modelo de datos</a>
+      <a href="06-despliegue-hostinger.html">Despliegue Hostinger</a>
+      <a href="07-plan-de-pruebas.html">Plan de pruebas</a>
+      <a href="08-plan-de-despliegue.html">Plan de despliegue</a>
+    </nav>
+    <p class="lateral-pie">ETERnidad<br>a un solo CLACK</p>
+  </aside>
+
+  <main id="contenido" class="doc">
+    <header class="cabecera">
+      <h1>Wompi</h1>
+      <p class="lede">Recaudo y dispersión a fotógrafos</p>
+    </header>
+    <article class="md"><p>Reemplaza por completo la sección 5 de la cotización (PayU Colombia).</p>
+<p>Son <strong>dos integraciones distintas</strong>, con productos, credenciales y ciclos de activación separados.
+Confundirlas es el error más común al empezar.</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th></th>
+<th><strong>Recaudo</strong></th>
+<th><strong>Dispersión</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Producto</td>
+<td>Pagos en línea (Checkout Web)</td>
+<td><strong>Pagos a Terceros</strong> (Payouts)</td>
+</tr>
+<tr>
+<td>Dirección del dinero</td>
+<td>Cliente → EterClack</td>
+<td>EterClack → Fotógrafo</td>
+</tr>
+<tr>
+<td>Credenciales</td>
+<td><code>pub_*</code>, <code>prv_*</code>, secretos de integridad y eventos</td>
+<td><code>x-api-key</code> + <code>user-principal-id</code></td>
+</tr>
+<tr>
+<td>Activación</td>
+<td>Registro del comercio</td>
+<td><strong>Trámite aparte</strong>: representante legal + biometría</td>
+</tr>
+<tr>
+<td>Sprint</td>
+<td>S5 (semanas 17–19)</td>
+<td>S7 (semanas 24–27)</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h1>Parte A — Recaudo</h1>
+<h2>A.1 Modalidad elegida: Checkout Web</h2>
+<p>Se mantiene el criterio de la cotización (que elegía WebCheckout de PayU): <strong>redirección a un
+checkout alojado</strong>. El usuario sale a Wompi, paga y vuelve.</p>
+<ul>
+<li>Exposición PCI mínima — EterClack nunca ve ni almacena números de tarjeta.</li>
+<li>Menos superficie de ataque y menos código propio en el camino del dinero.</li>
+<li>El Widget embebido y la API directa quedan como evolución posterior, no como MVP.</li>
+</ul>
+<p>Métodos disponibles vía checkout: tarjetas, PSE, Nequi, Bancolombia Transfer y Botón Bancolombia,
+Daviplata y efectivo, según lo habilitado en el comercio.</p>
+<h2>A.2 Ambientes y llaves</h2>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th></th>
+<th>Sandbox</th>
+<th>Producción</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Base URL</td>
+<td><code>https://sandbox.wompi.co/v1</code></td>
+<td><code>https://production.wompi.co/v1</code></td>
+</tr>
+<tr>
+<td>Llave pública</td>
+<td><code>pub_test_…</code></td>
+<td><code>pub_prod_…</code></td>
+</tr>
+<tr>
+<td>Llave privada</td>
+<td><code>prv_test_…</code></td>
+<td><code>prv_prod_…</code></td>
+</tr>
+<tr>
+<td>Secreto de integridad</td>
+<td><code>test_integrity_…</code></td>
+<td><code>prod_integrity_…</code></td>
+</tr>
+<tr>
+<td>Secreto de eventos</td>
+<td><code>test_events_…</code></td>
+<td><code>prod_events_…</code></td>
+</tr>
+</tbody></table></div>
+<p>Reglas no negociables:</p>
+<ol>
+<li>Las llaves de un ambiente <strong>solo</strong> funcionan con la URL de ese ambiente.</li>
+<li>La llave privada y ambos secretos <strong>nunca</strong> salen del backend. Jamás en el bundle del frontend,
+jamás en un repositorio.</li>
+<li>URLs de eventos <strong>separadas</strong> para sandbox y producción.</li>
+<li>Todo esto se valida al arrancar: si <code>WOMPI_BASE_URL</code> contiene <code>production</code> y la llave empieza por
+<code>pub_test_</code>, la API <strong>no levanta</strong>. Un error de configuración así, descubierto en caliente,
+cuesta transacciones reales.</li>
+</ol>
+<h2>A.3 Firma de integridad</h2>
+<p>Impide que alguien manipule el monto en el navegador antes de pagar.</p>
+<pre><code>SHA256( &lt;referencia&gt; + &lt;montoEnCentavos&gt; + &lt;moneda&gt; + &lt;secretoDeIntegridad&gt; )
+</code></pre>
+<p>Con fecha de expiración:</p>
+<pre><code>SHA256( &lt;referencia&gt; + &lt;montoEnCentavos&gt; + &lt;moneda&gt; + &lt;fechaExpiracion&gt; + &lt;secretoDeIntegridad&gt; )
+</code></pre>
+<pre><code class="language-ts">// apps/api/src/modules/payments/wompi.signature.ts
+import { createHash } from &#39;node:crypto&#39;;
+
+export function integritySignature(
+  reference: string,
+  amountInCents: bigint,
+  currency: &#39;COP&#39;,
+  secret: string,
+  expiresAt?: string,
+): string {
+  const parts = expiresAt
+    ? [reference, amountInCents.toString(), currency, expiresAt, secret]
+    : [reference, amountInCents.toString(), currency, secret];
+  return createHash(&#39;sha256&#39;).update(parts.join(&#39;&#39;)).digest(&#39;hex&#39;);
+}
+</code></pre>
+<blockquote>
+<p><strong>Solo en el servidor.</strong> Calcularla en el frontend expone el secreto de integridad y anula la
+protección por completo.</p>
+</blockquote>
+<h2>A.4 Flujo de pago</h2>
+<pre><code>Cliente acepta contrato
+      │
+      ▼
+POST /api/orders/:id/checkout            (API)
+      │  · verifica: orden es del cliente, estado = contrato_aceptado
+      │  · genera referencia única e irrepetible → ETC-{orderId}-{intento}-{nanoid}
+      │  · monto tomado de la ORDEN en base de datos, nunca del request
+      │  · calcula la firma de integridad
+      │  · crea registro `payment` en estado `iniciado`
+      ▼
+Redirección a https://checkout.wompi.co/p/?public-key=…&amp;currency=COP
+              &amp;amount-in-cents=…&amp;reference=…&amp;signature:integrity=…
+              &amp;redirect-url=…&amp;customer-email=…
+      │
+      ▼
+El cliente paga en Wompi
+      │
+      ├──── redirect-url ──→ /pago/resultado?id=&lt;transactionId&gt;
+      │        └─ SOLO INFORMATIVO. Muestra &quot;estamos confirmando tu pago&quot;.
+      │           Consulta GET /transactions/{id} para pintar algo, pero
+      │           NO cambia el estado de la orden. Nunca.
+      │
+      └──── webhook ───────→ POST /api/webhooks/wompi
+               · valida X-Event-Checksum
+               · idempotencia por (transaction.id, status)
+               · guarda el evento crudo en `wompi_events`
+               · ESTA es la única fuente de verdad
+               · APPROVED → orden = reservada, bloquear fecha,
+                            asiento en el libro contable, notificar
+</code></pre>
+<p><strong>La regla que la cotización ya establecía y que aquí se conserva:</strong> el navegador nunca decide que
+un pago fue aprobado. Un usuario puede cerrar la pestaña, perder señal o manipular la URL de
+retorno. Solo el evento servidor-a-servidor confirma.</p>
+<h2>A.5 Webhook: validación del checksum</h2>
+<p>Wompi envía el checksum en el encabezado <code>X-Event-Checksum</code> y en el cuerpo. Se construye
+concatenando <strong>los valores de las propiedades que el propio evento lista</strong> en <code>signature.properties</code>,
+seguidos del <code>timestamp</code> y del secreto de eventos.</p>
+<pre><code class="language-ts">function validateEventChecksum(body: WompiEvent, secret: string): boolean {
+  const concatenated = body.signature.properties
+    .map((path) =&gt; path.split(&#39;.&#39;).reduce((o, k) =&gt; o?.[k], body.data))
+    .join(&#39;&#39;);
+
+  const expected = createHash(&#39;sha256&#39;)
+    .update(concatenated + body.timestamp + secret)
+    .digest(&#39;hex&#39;)
+    .toUpperCase();
+
+  return timingSafeEqualHex(expected, body.signature.checksum.toUpperCase());
+}
+</code></pre>
+<p>Detalles que importan:</p>
+<ul>
+<li><strong>Leer <code>signature.properties</code> dinámicamente.</strong> No fijar los campos en código: Wompi puede
+cambiarlos y una lista rígida rompe la validación en silencio.</li>
+<li>Comparar en <strong>tiempo constante</strong> (<code>crypto.timingSafeEqual</code>), no con <code>===</code>.</li>
+<li>Responder <strong>200</strong> siempre que el evento sea válido, incluso si es duplicado. Wompi reintenta hasta
+3 veces (a los 30 min, 3 h y 24 h) ante cualquier respuesta distinta.</li>
+<li>Checksum inválido → <strong>401 y ningún cambio de estado</strong>. Registrar el intento como incidente.</li>
+</ul>
+<h2>A.6 Idempotencia y estados</h2>
+<p><code>wompi_events</code> guarda cada evento crudo con índice único sobre <code>(transaction_id, status, timestamp)</code>.
+Un evento repetido se registra y se ignora sin efecto secundario.</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Estado Wompi</th>
+<th>Estado del pago</th>
+<th>Efecto en la orden</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>PENDING</code></td>
+<td><code>pendiente</code></td>
+<td>Sin cambio; la orden espera</td>
+</tr>
+<tr>
+<td><code>APPROVED</code></td>
+<td><code>aprobado</code></td>
+<td>→ <code>reservada</code>, bloquea fecha, genera asiento contable, notifica</td>
+</tr>
+<tr>
+<td><code>DECLINED</code></td>
+<td><code>rechazado</code></td>
+<td>Vuelve a <code>pago_pendiente</code>, permite reintentar con <strong>nueva referencia</strong></td>
+</tr>
+<tr>
+<td><code>VOIDED</code></td>
+<td><code>anulado</code></td>
+<td>→ <code>cancelada</code>, libera fecha</td>
+</tr>
+<tr>
+<td><code>ERROR</code></td>
+<td><code>error</code></td>
+<td>Alerta al admin, permite reintento</td>
+</tr>
+</tbody></table></div>
+<p><strong>Transiciones prohibidas:</strong> de <code>aprobado</code> no se sale por webhook. Un reembolso o ajuste posterior es
+una operación administrativa con su propio asiento contable, nunca una mutación del pago original.</p>
+<h2>A.7 Conciliación</h2>
+<p>Los webhooks se pierden. Una tarea diaria a las 6:00:</p>
+<ol>
+<li>Busca pagos en <code>iniciado</code> o <code>pendiente</code> con más de 2 horas.</li>
+<li>Consulta <code>GET /transactions?reference=&lt;ref&gt;</code> en Wompi.</li>
+<li>Si Wompi dice <code>APPROVED</code> y localmente no lo está, aplica el mismo camino que el webhook (misma
+función, para que no existan dos rutas de código que puedan divergir).</li>
+<li>Discrepancias irresolubles → alerta al admin.</li>
+</ol>
+<h2>A.8 Casos de prueba obligatorios (S5)</h2>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Caso</th>
+<th>Resultado esperado</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Pago aprobado</td>
+<td>Orden <code>reservada</code>, fecha bloqueada, asiento creado, dos correos enviados</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Pago rechazado</td>
+<td>Orden vuelve a <code>pago_pendiente</code>, reintentable</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Pendiente que luego aprueba (PSE)</td>
+<td>Estado intermedio correcto, luego confirmación</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Webhook duplicado</td>
+<td>200, <strong>cero</strong> efectos secundarios adicionales</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Webhook con checksum inválido</td>
+<td>401, sin cambio de estado, incidente registrado</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Webhook fuera de orden (aprobado antes que pendiente)</td>
+<td>Estado final correcto</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Usuario cierra el navegador tras pagar</td>
+<td>El webhook confirma igual</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Monto manipulado en la URL</td>
+<td>Wompi rechaza por firma de integridad</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Referencia reutilizada</td>
+<td>Rechazada por la API</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Wompi caído al iniciar checkout</td>
+<td>Error claro, orden intacta, reintentable</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h1>Parte B — Dispersión (Pagos a Terceros)</h1>
+<h2>B.1 Lo que este cambio desbloquea</h2>
+<p>La cotización cerró este punto así:</p>
+<blockquote>
+<p>«&quot;Pagos a fotógrafos&quot; significa saldo y control interno, no dispersión automática. Retener,
+custodiar o dividir dinero de terceros puede exigir un producto específico de PayU, contrato
+comercial y revisión jurídica/tributaria.»</p>
+</blockquote>
+<p>Wompi <strong>sí</strong> tiene ese producto. Eso cambia el alcance del MVP: el fotógrafo deja de esperar una
+transferencia manual del administrador y recibe su dinero automáticamente.</p>
+<h2>B.2 Capacidades del producto</h2>
+<p>Según la documentación de Wompi:</p>
+<ul>
+<li>Destinos: cuentas bancarias de cualquier banco del país, billeteras (Nequi, Daviplata) y <strong>llaves
+Bre-B</strong> (celular, cédula o llave personalizada) sin necesitar datos bancarios completos.</li>
+<li>Envío individual o <strong>en lotes</strong>, por JSON o por archivo.</li>
+<li><strong>Ambiente de pruebas</strong> que permite simular pagos, recargas del saldo de origen y validar reportes.</li>
+<li><strong>Idempotencia</strong> mediante llave única generada por el cliente, con vencimiento a 24 horas.</li>
+<li>Tipos de pago: <code>PAYROLL</code>, <code>PROVIDERS</code>, <code>OTHER</code>. → EterClack usa <strong><code>PROVIDERS</code></strong>.</li>
+</ul>
+<p>Límites documentados:</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Límite</th>
+<th>Valor</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Tope diario</td>
+<td>COP $1.500.000.000</td>
+</tr>
+<tr>
+<td>Lotes diarios máximos</td>
+<td>3.800</td>
+</tr>
+<tr>
+<td>Longitud de número de cuenta</td>
+<td>6 a 20 caracteres numéricos</td>
+</tr>
+</tbody></table></div>
+<h2>B.3 Autenticación</h2>
+<p>Distinta de la de recaudo:</p>
+<pre><code class="language-http">user-principal-id: {ID_Usuario_Principal}
+x-api-key: {API_Key}
+</code></pre>
+<p>Notas operativas de la documentación:</p>
+<ul>
+<li>Requiere <strong>2FA configurado</strong> para poder ver las llaves en el panel.</li>
+<li>Requiere el producto <strong>activo</strong> para que las llaves aparezcan en la sección de Desarrolladores.</li>
+<li>Tras regenerar una API Key hay que <strong>esperar 2–3 minutos</strong> antes de usarla.</li>
+</ul>
+<blockquote>
+<p><strong>Pendiente de confirmar en S7:</strong> las URL base de sandbox y producción de Payouts no están
+publicadas en las páginas de documentación consultadas. Se obtienen de la <strong>colección de Postman</strong>
+o del <strong>SwaggerHub</strong> enlazados desde la documentación de Wompi. Es la primera tarea del sprint —
+<code>WOMPI_PAYOUTS_BASE_URL</code> queda vacía en <code>.env.example</code> a propósito, para que nadie invente un valor.</p>
+</blockquote>
+<h2>B.4 Endpoints</h2>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Propósito</th>
+<th>Método</th>
+<th>Ruta</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Pago individual</td>
+<td>POST</td>
+<td><code>/payouts</code></td>
+</tr>
+<tr>
+<td>Lote por archivo</td>
+<td>POST</td>
+<td><code>/payouts/file</code></td>
+</tr>
+<tr>
+<td>Listado de bancos</td>
+<td>GET</td>
+<td><code>/banks</code></td>
+</tr>
+<tr>
+<td>Consultar lotes</td>
+<td>GET</td>
+<td><code>/payouts</code></td>
+</tr>
+<tr>
+<td>Reportes</td>
+<td>GET</td>
+<td><code>/payouts/reports</code></td>
+</tr>
+</tbody></table></div>
+<p>Campos requeridos por pago:</p>
+<pre><code class="language-jsonc">{
+  &quot;accountId&quot;:     &quot;&lt;cuenta de origen&gt;&quot;,
+  &quot;legalIdType&quot;:   &quot;CC&quot;,            // CC | NIT | CE
+  &quot;legalId&quot;:       &quot;1020304050&quot;,
+  &quot;bankId&quot;:        &quot;1007&quot;,          // de GET /banks
+  &quot;accountType&quot;:   &quot;SAVINGS&quot;,       // ahorros | corriente
+  &quot;accountNumber&quot;: &quot;12345678901&quot;,   // 6–20 dígitos
+  &quot;name&quot;:          &quot;María Gómez&quot;,
+  &quot;email&quot;:         &quot;maria@ejemplo.com&quot;,
+  &quot;amount&quot;:        42500000,        // EN CENTAVOS
+  &quot;reference&quot;:     &quot;PO-2026-000123&quot;,
+  &quot;paymentType&quot;:   &quot;PROVIDERS&quot;
+}
+</code></pre>
+<p>Estados de lote: <code>PENDING</code> → <code>PARTIAL_PAYMENT</code> → <code>TOTAL_PAYMENT</code>.</p>
+<p><code>PARTIAL_PAYMENT</code> es el estado que hay que tratar con cuidado: <strong>algunos ítems del lote pagaron y
+otros no</strong>. El sistema debe reconciliar ítem por ítem, no lote por lote.</p>
+<h2>B.5 Activación — arranca en la semana 1</h2>
+<p>No es un formulario de cinco minutos:</p>
+<ol>
+<li>Lo realiza el <strong>representante legal</strong>, no un empleado ni el desarrollador.</li>
+<li>Elegir modalidad: solo cuenta Wompi (usa el saldo de pagos en línea), o cuenta Wompi + cuentas
+Bancolombia.</li>
+<li>Verificación de identidad: autorizar términos y permisos, activar ubicación, fotografiar el
+documento por ambas caras y grabar un <strong>video biométrico</strong>.</li>
+<li>Esperar la confirmación de activación por parte de Wompi.</li>
+</ol>
+<blockquote>
+<p>Por eso A2 está en la semana 1 del plan. Si esto se inicia en la semana 24, el sprint S7 se
+desarrolla a ciegas y la Fase 2 se retrasa.</p>
+</blockquote>
+<h2>B.6 El libro contable</h2>
+<p>Aquí está el núcleo del alcance nuevo. <strong>No se puede dispersar dinero sin llevar un libro.</strong></p>
+<p>Cada pago aprobado genera asientos que siempre cuadran en cero:</p>
+<pre><code>Pago aprobado de COP $500.000, comisión 15 %
+
+  Asiento 1  order_payment      +50.000.000 c   (entra a EterClack)
+  Asiento 2  platform_fee        −7.500.000 c   (comisión de la plataforma)
+  Asiento 3  photographer_payable −42.500.000 c  (deuda con el fotógrafo)
+                                 ─────────────
+                                          0
+</code></pre>
+<p>Estados del saldo del fotógrafo:</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Estado</th>
+<th>Significado</th>
+<th>Transición</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>retenido</code></td>
+<td>Pago recibido, servicio aún no entregado</td>
+<td>Automática al aprobarse el pago</td>
+</tr>
+<tr>
+<td><code>disponible</code></td>
+<td>Entrega lista + <code>PAYOUT_HOLD_DAYS</code> cumplidos</td>
+<td>Tarea diaria</td>
+</tr>
+<tr>
+<td><code>programado</code></td>
+<td>Incluido en una corrida</td>
+<td>Al armar el lote</td>
+</tr>
+<tr>
+<td><code>en_proceso</code></td>
+<td>Enviado a Wompi, esperando confirmación</td>
+<td>Al enviar el lote</td>
+</tr>
+<tr>
+<td><code>pagado</code></td>
+<td>Confirmado por Wompi</td>
+<td>Por evento o consulta</td>
+</tr>
+<tr>
+<td><code>fallido</code></td>
+<td>Rechazado — datos bancarios malos, cuenta cerrada</td>
+<td>Vuelve a <code>disponible</code> tras corregir</td>
+</tr>
+<tr>
+<td><code>ajustado</code></td>
+<td>Corrección manual del admin, con motivo obligatorio</td>
+<td>Solo admin, siempre auditado</td>
+</tr>
+</tbody></table></div>
+<p><strong>Ventana de retención.</strong> El saldo pasa a <code>disponible</code> solo después de que el fotógrafo marca
+«entrega lista» <strong>más</strong> <code>PAYOUT_HOLD_DAYS</code> (por defecto 5). Esto protege a EterClack de dispersar
+dinero de un servicio que después se reclama o se reembolsa. Es el mecanismo que hace viable
+sostener una política de reembolsos.</p>
+<h2>B.7 KYC bancario del fotógrafo</h2>
+<p>No se dispersa a nadie sin datos verificados. Antes de la primera corrida, el perfil debe tener:</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Campo</th>
+<th>Validación</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Tipo de documento</td>
+<td>CC, NIT o CE</td>
+</tr>
+<tr>
+<td>Número de documento</td>
+<td>Formato válido; coincide con el titular de la cuenta</td>
+</tr>
+<tr>
+<td>Banco</td>
+<td>De <code>GET /banks</code> — nunca texto libre</td>
+</tr>
+<tr>
+<td>Tipo de cuenta</td>
+<td>Ahorros o corriente</td>
+</tr>
+<tr>
+<td>Número de cuenta</td>
+<td>6–20 dígitos</td>
+</tr>
+<tr>
+<td>Nombre del titular</td>
+<td>Debe coincidir con el documento</td>
+</tr>
+<tr>
+<td>Correo</td>
+<td>Verificado</td>
+</tr>
+<tr>
+<td>Aceptación de términos de dispersión</td>
+<td>Con fecha y hora</td>
+</tr>
+</tbody></table></div>
+<p>Reglas:</p>
+<ul>
+<li>Cambiar los datos bancarios <strong>congela</strong> las dispersiones hasta que el admin revalide. Es la
+defensa contra el fraude por toma de cuenta: un atacante que entra a la cuenta de un fotógrafo no
+puede redirigir el dinero sin pasar por una persona.</li>
+<li>Primera dispersión a una cuenta nueva: monto pequeño de verificación, o revisión manual.</li>
+<li>Alternativa a evaluar en S7: <strong>llaves Bre-B</strong>, que evitan pedir y custodiar datos bancarios
+completos. Menos datos sensibles almacenados es menos riesgo.</li>
+</ul>
+<h2>B.8 La corrida de dispersión</h2>
+<pre><code>Cron  PAYOUT_RUN_CRON  (por defecto miércoles 9:00)
+      │
+      ▼
+1. Seleccionar saldos en `disponible` con monto ≥ PAYOUT_MIN_AMOUNT_CENTS
+2. Agrupar por fotógrafo (un solo pago aunque tenga varias órdenes)
+3. Excluir a quien no tenga KYC bancario completo y verificado
+4. Crear `payout_run` en estado `borrador` con sus `payout_items`
+      │
+      ▼
+5. ¿PAYOUTS_REQUIRE_ADMIN_APPROVAL?
+      ├── sí (MVP) → esperar aprobación explícita del admin en el panel
+      └── no       → continuar
+      │
+      ▼
+6. Marcar saldos como `programado`; generar idempotency key por ítem
+7. POST al lote de Wompi
+8. Guardar respuesta cruda; marcar `en_proceso`
+      │
+      ▼
+9. Consultar estado cada 30 min (y atender eventos si están disponibles)
+      ├── ítem OK      → `pagado`, asiento de liquidación, correo al fotógrafo
+      └── ítem fallido → `fallido`, motivo, correo al fotógrafo y al admin,
+                         saldo vuelve a `disponible`
+      │
+      ▼
+10. Cerrar la corrida; generar reporte descargable en CSV
+</code></pre>
+<p><strong>En el MVP, <code>PAYOUTS_REQUIRE_ADMIN_APPROVAL=true</code>.</strong> Un humano mira los montos antes de que salga
+dinero real. Se puede automatizar del todo después del piloto, cuando haya confianza en los números.</p>
+<h2>B.9 Idempotencia — la regla más importante</h2>
+<blockquote>
+<p><strong>Un error aquí paga dos veces. No hay forma elegante de recuperarse de eso.</strong></p>
+</blockquote>
+<ul>
+<li>La llave de idempotencia es <strong>determinista</strong>, derivada del contenido, no aleatoria:
+<code>payout:{runId}:{photographerId}:{amountInCents}</code>. Un reintento genera exactamente la misma llave.</li>
+<li>Vence a las 24 horas (según Wompi). Un reintento posterior necesita una llave nueva <strong>y</strong>
+verificación previa contra Wompi de que el pago original no se ejecutó.</li>
+<li>Antes de reintentar cualquier ítem: <strong>consultar primero</strong> el estado en Wompi. Nunca reintentar a
+ciegas.</li>
+<li><code>payout_items</code> tiene índice único sobre <code>(run_id, photographer_id)</code>.</li>
+<li>Todo monto es <code>bigint</code> en centavos. Cero aritmética de punto flotante en el camino del dinero.</li>
+</ul>
+<h2>B.10 Conciliación diaria</h2>
+<p>Tarea automática a las 7:00:</p>
+<ol>
+<li><code>GET /payouts/reports</code> del día anterior.</li>
+<li>Comparar contra <code>payout_items</code> locales.</li>
+<li>Cualquier diferencia —monto, estado o ítem faltante en cualquiera de los dos lados— genera
+<strong>alerta crítica</strong> al admin y bloquea la siguiente corrida hasta que se resuelva.</li>
+</ol>
+<p>Un descuadre sin resolver no debe acumularse silenciosamente durante semanas.</p>
+<h2>B.11 Casos de prueba obligatorios (S7)</h2>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Caso</th>
+<th>Resultado esperado</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Dispersión individual exitosa</td>
+<td>Saldo <code>pagado</code>, asiento creado, correo enviado</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Lote con 5 ítems, todos OK</td>
+<td><code>TOTAL_PAYMENT</code>, 5 saldos en <code>pagado</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>Lote con 1 ítem fallido</td>
+<td><code>PARTIAL_PAYMENT</code>; 4 pagados, 1 vuelve a <code>disponible</code> con motivo</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Misma llave de idempotencia dos veces</td>
+<td><strong>Un solo pago</strong>, segunda respuesta reconocida como duplicado</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Datos bancarios inválidos</td>
+<td>Rechazo previo al envío, sin llamada a la API</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Fotógrafo sin KYC</td>
+<td>Excluido de la corrida, con aviso</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Saldo bajo el mínimo</td>
+<td>Se acumula para la siguiente corrida</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Saldo aún en ventana de retención</td>
+<td>No entra en la corrida</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Wompi caído durante la corrida</td>
+<td>Corrida en <code>error</code>, reintentable sin duplicar</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Conciliación con diferencia inyectada</td>
+<td>Alerta crítica y bloqueo de la siguiente corrida</td>
+</tr>
+<tr>
+<td>11</td>
+<td>Reembolso posterior a la dispersión</td>
+<td>Genera saldo negativo, se compensa contra el siguiente pago</td>
+</tr>
+<tr>
+<td>12</td>
+<td>Cambio de datos bancarios con corrida en curso</td>
+<td>La corrida usa los datos con los que se armó; la siguiente exige revalidación</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h2>C. Obligaciones legales y tributarias</h2>
+<p>Cambiar de proveedor eliminó el bloqueo técnico. <strong>No eliminó nada de esto</strong>, y debe estar resuelto
+antes de la primera dispersión con dinero real (tarea A4, semanas 2–6):</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Tema</th>
+<th>Pregunta que el contador o abogado debe responder</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Retención en la fuente</td>
+<td>¿EterClack debe practicar retefuente sobre los pagos a fotógrafos? ¿A qué tarifa según régimen?</td>
+</tr>
+<tr>
+<td>ReteICA</td>
+<td>¿Aplica según el municipio de la operación?</td>
+</tr>
+<tr>
+<td>Facturación</td>
+<td>¿El fotógrafo factura a EterClack, o EterClack factura al cliente por cuenta del fotógrafo?</td>
+</tr>
+<tr>
+<td>RUT</td>
+<td>¿Se exige RUT vigente a cada fotógrafo antes de dispersar?</td>
+</tr>
+<tr>
+<td>Naturaleza jurídica</td>
+<td>¿EterClack actúa como mandatario, intermediario o comisionista? Define el tratamiento fiscal completo</td>
+</tr>
+<tr>
+<td>Reembolsos</td>
+<td>¿Qué pasa si hay que devolver dinero ya dispersado? ¿Quién asume la pérdida?</td>
+</tr>
+<tr>
+<td>Información exógena</td>
+<td>¿Qué debe reportarse a la DIAN y con qué periodicidad?</td>
+</tr>
+<tr>
+<td>Contracargos</td>
+<td>¿Quién responde ante un contracargo posterior a la dispersión?</td>
+</tr>
+</tbody></table></div>
+<blockquote>
+<p>La plataforma debe poder <strong>configurar</strong> retenciones por fotógrafo (campo <code>withholding_bps</code>) para
+aplicarlas cuando la respuesta llegue. Se diseña el campo desde S7 aunque se use en cero: agregarlo
+después obliga a recalcular saldos históricos.</p>
+</blockquote>
+<hr>
+<h2>D. Fuentes</h2>
+<ul>
+<li>Wompi — Ambientes y llaves: <a href="https://docs.wompi.co/docs/colombia/ambientes-y-llaves/">https://docs.wompi.co/docs/colombia/ambientes-y-llaves/</a></li>
+<li>Wompi — Widget y Checkout Web (firma de integridad): <a href="https://docs.wompi.co/docs/colombia/widget-checkout-web/">https://docs.wompi.co/docs/colombia/widget-checkout-web/</a></li>
+<li>Wompi — Eventos y validación de checksum: <a href="https://docs.wompi.co/docs/colombia/eventos/">https://docs.wompi.co/docs/colombia/eventos/</a></li>
+<li>Wompi — Pagos a Terceros, introducción: <a href="https://docs.wompi.co/en/docs/colombia/introduccion-pagos-a-terceros/">https://docs.wompi.co/en/docs/colombia/introduccion-pagos-a-terceros/</a></li>
+<li>Wompi — Pagos a Terceros, activación: <a href="https://docs.wompi.co/en/docs/colombia/activacion-pagos-a-terceros/">https://docs.wompi.co/en/docs/colombia/activacion-pagos-a-terceros/</a></li>
+<li>Wompi — Pagos a Terceros, ambientes y llaves: <a href="https://docs.wompi.co/en/docs/colombia/ambientes-y-llaves-pagos-a-terceros/">https://docs.wompi.co/en/docs/colombia/ambientes-y-llaves-pagos-a-terceros/</a></li>
+<li>Wompi — Pagos a Terceros, referencia de API: <a href="https://docs.wompi.co/en/docs/colombia/referencia-pagos-a-terceros/">https://docs.wompi.co/en/docs/colombia/referencia-pagos-a-terceros/</a></li>
+<li>Wompi — Payouts (comercial): <a href="https://wompi.com/es/co/soluciones/payouts.html">https://wompi.com/es/co/soluciones/payouts.html</a></li>
+</ul>
+<p>Consulta realizada el 22 de agosto de 2026. Las tarifas, límites y condiciones de Wompi están sujetos
+a cambio; confirmar en el panel del comercio antes de contratar.</p>
+</article>
+  </main>
+</div>
+</body>
+</html>

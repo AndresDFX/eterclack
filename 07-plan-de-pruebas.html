@@ -1,0 +1,863 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1D1D1B">
+<title>Plan de pruebas · EterClack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="saltar" href="#contenido">Saltar al contenido</a>
+
+<div class="marco">
+  <aside class="lateral">
+    <a class="marca" href="index.html" aria-label="EterClack, inicio">
+      <span class="marca-tipo">eter<br>clack</span>
+      <span class="marca-esq"><i class="esq tr"></i><i class="esq br"></i></span>
+    </a>
+    <nav>
+      <a href="index.html">Inicio</a>
+      <a href="interfaz.html">La interfaz</a>
+      <a href="00-plan-implementacion.html">Plan de implementación</a>
+      <a href="01-arquitectura.html">Arquitectura</a>
+      <a href="02-entorno-local.html">Entorno local</a>
+      <a href="03-servidor-correo.html">Servidor de correo</a>
+      <a href="04-wompi.html">Wompi</a>
+      <a href="05-modelo-datos.html">Modelo de datos</a>
+      <a href="06-despliegue-hostinger.html">Despliegue Hostinger</a>
+      <a href="07-plan-de-pruebas.html" aria-current="page">Plan de pruebas</a>
+      <a href="08-plan-de-despliegue.html">Plan de despliegue</a>
+    </nav>
+    <p class="lateral-pie">ETERnidad<br>a un solo CLACK</p>
+  </aside>
+
+  <main id="contenido" class="doc">
+    <header class="cabecera">
+      <h1>Plan de pruebas</h1>
+      <p class="lede">Qué se prueba, cómo y con qué criterio</p>
+    </header>
+    <article class="md"><p><strong>Alcance:</strong> todo lo construido (identidad, descubrimiento, calendario, reserva, contrato, PWA) y
+lo que falta (galerías, Wompi, correo propio).
+<strong>Principio:</strong> cada prueba existe porque hay una forma concreta de fallar. Una prueba que no puede
+fallar no aporta nada y sí cuesta mantenerla.</p>
+<hr>
+<h2>1. Qué se prueba y con qué</h2>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Nivel</th>
+<th>Herramienta</th>
+<th>Qué cubre</th>
+<th>Cuándo corre</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Unitarias</strong></td>
+<td>Vitest</td>
+<td>Reglas puras: dinero, comisiones, firmas, máquinas de estado</td>
+<td>Cada commit</td>
+</tr>
+<tr>
+<td><strong>Integración</strong></td>
+<td>Vitest + Supertest + Testcontainers</td>
+<td>Endpoints contra PostgreSQL y Redis <strong>reales</strong> y efímeros</td>
+<td>Cada commit</td>
+</tr>
+<tr>
+<td><strong>E2E</strong></td>
+<td>Playwright</td>
+<td>Recorridos completos por rol en navegador real</td>
+<td>Cada PR</td>
+</tr>
+<tr>
+<td><strong>Responsive y accesibilidad</strong></td>
+<td>Playwright + axe-core</td>
+<td>Desbordes, objetivos táctiles, contraste, foco</td>
+<td>Cada PR</td>
+</tr>
+<tr>
+<td><strong>Carga</strong></td>
+<td>k6</td>
+<td>Concurrencia en reserva y búsqueda</td>
+<td>Antes de cada release</td>
+</tr>
+<tr>
+<td><strong>Seguridad</strong></td>
+<td>Suite propia + <code>npm audit</code></td>
+<td>Autorización, idempotencia, límites</td>
+<td>Cada PR</td>
+</tr>
+<tr>
+<td><strong>Manual</strong></td>
+<td>Guion escrito</td>
+<td>Entregabilidad de correo, dinero real, dispositivos físicos</td>
+<td>Antes de producción</td>
+</tr>
+</tbody></table></div>
+<blockquote>
+<p><strong>Regla de mocks:</strong> se simula lo que está fuera de nuestro control (Wompi, el mundo exterior).
+<strong>Nunca</strong> se simula PostgreSQL. Un mock de base de datos prueba el mock, no el sistema — y el
+libro contable y las carreras por una franja solo fallan de verdad contra Postgres.</p>
+</blockquote>
+<hr>
+<h2>2. Pruebas unitarias</h2>
+<p>Sin base de datos, sin red. Milisegundos.</p>
+<h3>2.1 Dinero — <code>lib/money.ts</code></h3>
+<p>Es la superficie donde un error cuesta plata.</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Caso</th>
+<th>Se espera</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>splitAmount(315_000_00n, 1500)</code></td>
+<td>comisión + neto = total, exacto</td>
+</tr>
+<tr>
+<td>Monto que no divide exacto (<code>333_333n</code>, 1500 bps)</td>
+<td>Sin céntimos perdidos ni inventados</td>
+</tr>
+<tr>
+<td><code>bps = 0</code></td>
+<td>Comisión cero, el fotógrafo recibe todo</td>
+</tr>
+<tr>
+<td><code>bps = 10_000</code></td>
+<td>Comisión total, neto cero</td>
+</tr>
+<tr>
+<td><code>bps</code> fuera de <code>[0, 10000]</code></td>
+<td>Lanza excepción</td>
+</tr>
+<tr>
+<td><code>formatCOP</code> con 0, 1, millones, mil millones</td>
+<td>Separadores de miles correctos</td>
+</tr>
+<tr>
+<td><strong>Propiedad:</strong> para 10 000 pares aleatorios</td>
+<td><code>comisión + neto === total</code> <strong>siempre</strong></td>
+</tr>
+</tbody></table></div>
+<p>Esa última es la que importa: una prueba basada en propiedades encuentra el caso de redondeo que
+nadie escribiría a mano.</p>
+<h3>2.2 Criptografía — <code>lib/crypto.ts</code></h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Caso</th>
+<th>Se espera</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>hashPassword</code> dos veces con la misma clave</td>
+<td>Hashes distintos (sal aleatoria)</td>
+</tr>
+<tr>
+<td><code>verifyPassword</code> con la clave correcta</td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>verifyPassword</code> con clave incorrecta</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td>Hash con formato corrupto</td>
+<td><code>false</code>, sin excepción</td>
+</tr>
+<tr>
+<td><code>timingSafeEqualHex</code> con longitudes distintas</td>
+<td><code>false</code>, sin excepción</td>
+</tr>
+</tbody></table></div>
+<h3>2.3 Reglas del calendario — <code>modules/slots</code></h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Caso</th>
+<th>Se espera</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>conflictingTurns(&#39;DIA_COMPLETO&#39;)</code></td>
+<td>Bloquea mañana, tarde y jornada completa</td>
+</tr>
+<tr>
+<td><code>conflictingTurns(&#39;MANANA&#39;)</code></td>
+<td>Bloquea jornada completa y mañana; <strong>no</strong> la tarde</td>
+</tr>
+</tbody></table></div>
+<h3>2.4 Firmas de Wompi <em>(al construir la Fase 6)</em></h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Caso</th>
+<th>Se espera</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Firma de integridad con el ejemplo oficial de la documentación</td>
+<td>Coincide byte a byte</td>
+</tr>
+<tr>
+<td>Checksum de evento leyendo <code>signature.properties</code> dinámicamente</td>
+<td>Válido</td>
+</tr>
+<tr>
+<td>Checksum con una propiedad extra que Wompi agregue</td>
+<td>Sigue validando (no hay lista fija en código)</td>
+</tr>
+<tr>
+<td>Checksum alterado en un carácter</td>
+<td>Inválido</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h2>3. Pruebas de integración</h2>
+<p>PostgreSQL y Redis reales, levantados por Testcontainers y destruidos al terminar. Cada prueba
+arranca con la base migrada y sembrada mínima.</p>
+<h3>3.1 Identidad</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Caso</th>
+<th>Se espera</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Registro con datos válidos</td>
+<td>201, usuario creado, correo de verificación encolado</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Registro con correo repetido</td>
+<td>409, <strong>sin</strong> crear un segundo usuario</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Registro con contraseña de 7 caracteres</td>
+<td>400 con el mensaje del campo</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Registro como fotógrafo</td>
+<td>Crea perfil en <code>PENDING</code>, no visible en búsqueda</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Login correcto</td>
+<td>200, cookies <code>httpOnly</code> presentes</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Login con clave incorrecta</td>
+<td>401 con <strong>el mismo</strong> mensaje que un correo inexistente</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Login de cuenta suspendida</td>
+<td>403</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Verificar correo con token válido</td>
+<td><code>emailVerifiedAt</code> poblado</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Reusar el mismo token</td>
+<td>400</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Token vencido</td>
+<td>400</td>
+</tr>
+<tr>
+<td>11</td>
+<td><code>forgot-password</code> con correo inexistente</td>
+<td>200 <strong>idéntico</strong> al caso existente (no filtra registro)</td>
+</tr>
+<tr>
+<td>12</td>
+<td>Cambiar contraseña</td>
+<td>Revoca <strong>todas</strong> las sesiones abiertas</td>
+</tr>
+<tr>
+<td>13</td>
+<td>Refresh rota el token</td>
+<td>El refresh anterior queda revocado</td>
+</tr>
+<tr>
+<td>14</td>
+<td>Refresh con token revocado</td>
+<td>401</td>
+</tr>
+</tbody></table></div>
+<h3>3.2 Autorización — la tabla que no puede tener huecos</h3>
+<p>Se recorre <strong>cada</strong> endpoint contra <strong>cada</strong> rol. Es tedioso y es exactamente donde aparecen los
+agujeros.</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Endpoint</th>
+<th>Anónimo</th>
+<th>Cliente</th>
+<th>Fotógrafo</th>
+<th>Admin</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>GET /api/photographers</code></td>
+<td>200</td>
+<td>200</td>
+<td>200</td>
+<td>200</td>
+</tr>
+<tr>
+<td><code>GET /api/photographers/:slug</code> (aprobado)</td>
+<td>200</td>
+<td>200</td>
+<td>200</td>
+<td>200</td>
+</tr>
+<tr>
+<td><code>GET /api/photographers/:slug</code> (pendiente)</td>
+<td>404</td>
+<td>404</td>
+<td>404</td>
+<td>404</td>
+</tr>
+<tr>
+<td><code>GET /api/photographers/me/profile</code></td>
+<td>401</td>
+<td>403</td>
+<td>200</td>
+<td>403</td>
+</tr>
+<tr>
+<td><code>POST /api/photographers/me/slots</code></td>
+<td>401</td>
+<td>403</td>
+<td>200</td>
+<td>403</td>
+</tr>
+<tr>
+<td><code>POST /api/bookings</code></td>
+<td>401</td>
+<td>200</td>
+<td>403</td>
+<td>403</td>
+</tr>
+<tr>
+<td><code>GET /api/orders/:id</code> (propia)</td>
+<td>401</td>
+<td>200</td>
+<td>200</td>
+<td>200</td>
+</tr>
+<tr>
+<td><code>GET /api/orders/:id</code> (<strong>ajena</strong>)</td>
+<td>401</td>
+<td><strong>403</strong></td>
+<td><strong>403</strong></td>
+<td>200</td>
+</tr>
+<tr>
+<td><code>POST /api/orders/:id/contract/accept</code></td>
+<td>401</td>
+<td>200 (propia) / 403 (ajena)</td>
+<td>403</td>
+<td>403</td>
+</tr>
+<tr>
+<td><code>GET /api/admin/*</code></td>
+<td>401</td>
+<td>403</td>
+<td>403</td>
+<td>200</td>
+</tr>
+</tbody></table></div>
+<blockquote>
+<p>El caso «orden ajena» es el que hay que blindar. Un <code>403</code> ahí es la diferencia entre una
+plataforma y una filtración de datos de clientes.</p>
+</blockquote>
+<h3>3.3 Calendario y reserva</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Caso</th>
+<th>Se espera</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Publicar franjas en fechas futuras</td>
+<td>201, aparecen como disponibles</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Publicar en fecha pasada</td>
+<td>400</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Publicar la misma franja dos veces</td>
+<td>Sin duplicados (<code>skipDuplicates</code>)</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Retirar franja libre</td>
+<td>Se elimina</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Retirar franja con cita</td>
+<td>409, <strong>no</strong> se elimina</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Reservar franja disponible</td>
+<td>201, orden en <code>BORRADOR</code>, franja <code>RETENIDA</code></td>
+</tr>
+<tr>
+<td>7</td>
+<td>Reservar franja ya tomada</td>
+<td>409</td>
+</tr>
+<tr>
+<td>8</td>
+<td><strong>Dos reservas simultáneas sobre la misma franja</strong></td>
+<td>Exactamente <strong>una</strong> gana; la otra recibe 409</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Reservar jornada completa</td>
+<td>Elimina mañana y tarde libres de ese día</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Reservar mañana</td>
+<td>La tarde sigue disponible</td>
+</tr>
+<tr>
+<td>11</td>
+<td>Producto de otro fotógrafo</td>
+<td>400</td>
+</tr>
+<tr>
+<td>12</td>
+<td>Reservar sin correo verificado</td>
+<td>403</td>
+</tr>
+<tr>
+<td>13</td>
+<td>Retención vencida</td>
+<td>La franja vuelve a <code>DISPONIBLE</code></td>
+</tr>
+<tr>
+<td>14</td>
+<td>Comisión congelada</td>
+<td>Cambiar la global no altera órdenes existentes</td>
+</tr>
+</tbody></table></div>
+<p>El caso 8 se prueba con <code>Promise.all</code> de dos peticiones reales contra el mismo <code>slotId</code>. Es la
+única forma de verificar que el <code>updateMany … where status = DISPONIBLE</code> cierra la carrera.</p>
+<h3>3.4 Contrato</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Caso</th>
+<th>Se espera</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Ver contrato antes de aceptar</td>
+<td>Texto con todas las variables resueltas</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Aceptar con nombre y casilla</td>
+<td>201, evidencia con IP, navegador, versión, fecha</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Aceptar dos veces</td>
+<td>409</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Aceptar contrato ajeno</td>
+<td>403</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Fotógrafo intenta aceptar</td>
+<td>403</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Ver contrato ya aceptado</td>
+<td>Devuelve la <strong>copia congelada</strong>, no una nueva renderización</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Cambiar la plantilla y volver a consultar</td>
+<td>La orden aceptada conserva su texto original</td>
+</tr>
+</tbody></table></div>
+<h3>3.5 Correo</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Caso</th>
+<th>Se espera</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Cada plantilla renderiza</td>
+<td>HTML y texto plano, sin <code>{{variables}}</code> sueltas</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Destinatario en lista de supresión</td>
+<td>Se registra como <code>SUPPRESSED</code>, no se envía</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Fallo del transporte</td>
+<td>Correo en <code>FAILED</code>; <strong>la operación de negocio no se cae</strong></td>
+</tr>
+<tr>
+<td>4</td>
+<td>Estrangulamiento a 4/min</td>
+<td>10 correos tardan ≥ 2 min</td>
+</tr>
+</tbody></table></div>
+<h3>3.6 Invariantes del sistema</h3>
+<p>Se ejecutan al final de cada suite de integración, sobre el estado resultante:</p>
+<ol>
+<li><code>SUM(ledger_entries.amount_cents)</code> de una orden liquidada es <strong>0</strong>.</li>
+<li><code>order.amountCents = commissionCents + photographerCents</code>, en <strong>todas</strong> las órdenes.</li>
+<li>Ninguna franja <code>RESERVADA</code> sin orden asociada.</li>
+<li>Ninguna orden sin franja.</li>
+<li>Ninguna transición de estado sin fila en <code>audit_log</code>.</li>
+<li>Ningún <code>ContractAcceptance</code> con <code>updatedAt &gt; createdAt</code> (es inmutable).</li>
+</ol>
+<hr>
+<h2>4. Pruebas E2E</h2>
+<p>Playwright, navegador real, tres roles. Los correos se leen de la <strong>API de Mailpit</strong>, no de la
+bandeja visual: así el enlace de verificación se extrae y se usa sin intervención.</p>
+<h3>4.1 Recorrido feliz del cliente</h3>
+<pre><code>registro → leer correo en Mailpit → verificar → buscar con filtros →
+abrir ficha → elegir producto MEDIO → elegir día y franja → reservar →
+aceptar contrato → ver la orden en PAGO_PENDIENTE
+</code></pre>
+<p>Verifica en el camino: la franja desaparece del calendario público, llegan los dos correos, la
+evidencia del contrato queda visible.</p>
+<h3>4.2 Recorrido del fotógrafo</h3>
+<pre><code>postulación → (admin aprueba) → completar perfil → publicar 5 franjas →
+recibir la reserva → ver la cita con su neto → retirar una franja libre
+</code></pre>
+<h3>4.3 Recorrido de administración</h3>
+<pre><code>ver pendientes → aprobar uno → verificar que aparece en búsqueda →
+rechazar otro con motivo → verificar el correo → suspender un aprobado
+</code></pre>
+<h3>4.4 Recorridos que <strong>deben</strong> fallar</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Caso</th>
+<th>Se espera</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Cliente A abre la orden de cliente B por URL directa</td>
+<td>403 y pantalla de error, no datos</td>
+</tr>
+<tr>
+<td>Fotógrafo abre <code>/admin</code></td>
+<td>Redirección, sin destello del contenido</td>
+</tr>
+<tr>
+<td>Reservar sin verificar el correo</td>
+<td>Pantalla que exige verificación</td>
+</tr>
+<tr>
+<td>Dos pestañas reservando la misma franja</td>
+<td>Una confirma, la otra muestra «Alguien acaba de tomar esa fecha»</td>
+</tr>
+<tr>
+<td>Volver atrás tras aceptar el contrato y reenviar</td>
+<td>No duplica la aceptación</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h2>5. Responsive y accesibilidad</h2>
+<p>Automatizado en cada PR, sobre las 13 rutas × 5 anchos (360, 390, 768, 1024, 1440).</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Comprobación</th>
+<th>Umbral</th>
+<th>Estado actual</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Desborde horizontal</td>
+<td>0 px en toda combinación</td>
+<td>✅ <strong>0 / 65</strong></td>
+</tr>
+<tr>
+<td>Objetivos táctiles (puntero grueso)</td>
+<td>≥ 44 px</td>
+<td>✅ <strong>0 incumplimientos</strong></td>
+</tr>
+<tr>
+<td>Objetivos con ratón</td>
+<td>≥ 24 px (WCAG 2.5.8)</td>
+<td>✅ <strong>0 incumplimientos</strong></td>
+</tr>
+<tr>
+<td>Contraste de texto</td>
+<td>≥ 4.5:1 normal, 3:1 grande</td>
+<td>Pendiente de automatizar con axe</td>
+</tr>
+<tr>
+<td>Foco visible</td>
+<td>Todo elemento accionable</td>
+<td>Implementado con <code>:focus-visible</code></td>
+</tr>
+<tr>
+<td>Navegación por teclado</td>
+<td>Recorrido completo sin ratón</td>
+<td>Pendiente de guion</td>
+</tr>
+<tr>
+<td><code>prefers-reduced-motion</code></td>
+<td>Sin animación</td>
+<td>Implementado</td>
+</tr>
+</tbody></table></div>
+<blockquote>
+<p>Los enlaces embebidos en una frase quedan exentos del mínimo táctil: WCAG 2.5.8 los excluye
+expresamente, y agrandarlos deformaría la prosa sin que nadie los toque mejor. Una casilla dentro
+de un <code>&lt;label&gt;</code> se mide por el label, que es el objetivo real.</p>
+</blockquote>
+<p><strong>Dispositivos físicos</strong> (manual, antes de producción): iPhone SE (el más estrecho vigente),
+iPhone 15, un Android de gama media, iPad. Safari es el que rompe: probarlo de verdad, no emulado.</p>
+<hr>
+<h2>6. PWA</h2>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Comprobación</th>
+<th>Cómo</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Manifest válido y completo</td>
+<td>Lighthouse</td>
+</tr>
+<tr>
+<td>Íconos en todos los tamaños, incluido <em>maskable</em></td>
+<td>Lighthouse</td>
+</tr>
+<tr>
+<td>Instalable</td>
+<td>Botón de instalación en Chrome; añadir a pantalla de inicio en iOS</td>
+</tr>
+<tr>
+<td>Funciona sin conexión</td>
+<td>Modo avión: la App Shell carga, no una pantalla de error del navegador</td>
+</tr>
+<tr>
+<td><strong>La API nunca se cachea</strong></td>
+<td>Reservar sin conexión debe <strong>fallar</strong>, no fingir que funcionó</td>
+</tr>
+<tr>
+<td>Actualización</td>
+<td>Publicar una versión nueva; el service worker antiguo cede el control</td>
+</tr>
+</tbody></table></div>
+<blockquote>
+<p>La quinta es la que importa. Un service worker que cachea <code>/api</code> haría que una reserva parezca
+confirmada estando el usuario sin señal. Ese fallo es peor que un error visible.</p>
+</blockquote>
+<hr>
+<h2>7. Carga</h2>
+<p>k6 contra el entorno de staging, no contra local.</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Escenario</th>
+<th>Perfil</th>
+<th>Criterio</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Búsqueda con filtros</td>
+<td>50 usuarios / 2 min</td>
+<td>p95 &lt; 500 ms, 0 errores</td>
+</tr>
+<tr>
+<td>Ficha con portafolio</td>
+<td>30 usuarios / 2 min</td>
+<td>p95 &lt; 800 ms</td>
+</tr>
+<tr>
+<td><strong>Carrera por una franja</strong></td>
+<td>20 usuarios simultáneos sobre el <strong>mismo</strong> <code>slotId</code></td>
+<td>Exactamente <strong>1</strong> reserva creada, 19 con 409</td>
+</tr>
+<tr>
+<td>Subida de galería <em>(Fase 5)</em></td>
+<td>5 fotógrafos × 50 fotos</td>
+<td>Sin agotar memoria de la API</td>
+</tr>
+<tr>
+<td>Cola de correo</td>
+<td>100 correos encolados</td>
+<td>Se drenan a 4/min sin perder ninguno</td>
+</tr>
+</tbody></table></div>
+<p>La tercera es la prueba de carga que de verdad importa en este producto: no mide velocidad, mide
+corrección bajo concurrencia.</p>
+<hr>
+<h2>8. Seguridad</h2>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Comprobación</th>
+<th>Cómo</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Autorización por recurso</td>
+<td>Tabla completa de §3.2</td>
+</tr>
+<tr>
+<td>Escalada de privilegios</td>
+<td>Un cliente no llega a nada de admin ni de fotógrafo</td>
+</tr>
+<tr>
+<td>Enumeración de usuarios</td>
+<td>Login y recuperación responden igual exista o no la cuenta</td>
+</tr>
+<tr>
+<td>Fuerza bruta</td>
+<td>Límite de tasa: 10 intentos / 15 min por IP</td>
+</tr>
+<tr>
+<td>Inyección SQL</td>
+<td>Prisma parametriza; se verifica con carga adversa en los filtros</td>
+</tr>
+<tr>
+<td>XSS</td>
+<td>React escapa; se revisa cualquier <code>dangerouslySetInnerHTML</code> (hoy: ninguno)</td>
+</tr>
+<tr>
+<td>Cabeceras</td>
+<td>securityheaders.com sobre staging</td>
+</tr>
+<tr>
+<td>Dependencias</td>
+<td><code>npm audit</code> sin vulnerabilidades altas</td>
+</tr>
+<tr>
+<td>Secretos</td>
+<td>Escaneo del historial de git: <code>gitleaks</code></td>
+</tr>
+<tr>
+<td>Contratos inmutables</td>
+<td>Intento de <code>UPDATE</code> sobre <code>ContractAcceptance</code></td>
+</tr>
+</tbody></table></div>
+<p><strong>Pendiente para las fases de dinero:</strong></p>
+<ul>
+<li>Idempotencia de dispersión: la misma llave dos veces produce <strong>un</strong> pago.</li>
+<li>Webhook con checksum inválido: 401 y <strong>sin</strong> cambio de estado.</li>
+<li>Webhook repetido: 200 y sin efecto doble.</li>
+<li>Manipular el monto en la URL del checkout: rechazado por firma de integridad.</li>
+</ul>
+<hr>
+<h2>9. Criterios de entrada y salida</h2>
+<p><strong>No se abre un PR si</strong> falla <code>lint</code>, <code>typecheck</code>, unitarias o integración.</p>
+<p><strong>No se despliega a producción si:</strong></p>
+<ol>
+<li>Algún recorrido E2E está en rojo.</li>
+<li>Hay desborde horizontal en cualquier combinación.</li>
+<li>Hay una vulnerabilidad alta sin resolver.</li>
+<li>La restauración de backup no se probó en los últimos 90 días.</li>
+<li>Queda un defecto bloqueante abierto.</li>
+</ol>
+<p><strong>Cobertura mínima exigida</strong> en el camino del dinero (<code>money</code>, <code>ledger</code>, <code>bookings</code>, <code>payments</code>,
+<code>payouts</code>): <strong>90 %</strong> de líneas. En el resto: 70 %. La cobertura no es la meta —es el piso.</p>
+<hr>
+<h2>10. Estado actual</h2>
+<p>Lo verificado hasta hoy se hizo contra la API real en ejecución, con <code>curl</code> y sondas por
+DevTools Protocol, no con pruebas automatizadas. <strong>Ese es el hueco principal del proyecto.</strong></p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Área</th>
+<th>Verificado a mano</th>
+<th>Automatizado</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Identidad y RBAC</td>
+<td>✅</td>
+<td>⬜</td>
+</tr>
+<tr>
+<td>Descubrimiento y filtros</td>
+<td>✅</td>
+<td>⬜</td>
+</tr>
+<tr>
+<td>Aprobación de fotógrafos</td>
+<td>✅</td>
+<td>⬜</td>
+</tr>
+<tr>
+<td>Calendario y reserva</td>
+<td>✅</td>
+<td>⬜</td>
+</tr>
+<tr>
+<td>Contrato y evidencia</td>
+<td>✅</td>
+<td>⬜</td>
+</tr>
+<tr>
+<td>Responsive y táctil</td>
+<td>✅ (65 combinaciones)</td>
+<td>⬜</td>
+</tr>
+<tr>
+<td>PWA</td>
+<td>✅</td>
+<td>⬜</td>
+</tr>
+</tbody></table></div>
+<p><strong>Primer paso al retomar:</strong> convertir las verificaciones manuales de §3.1, §3.2 y §3.3 en pruebas
+de integración. Ya sabemos que pasan; el valor está en que <strong>sigan</strong> pasando cuando alguien toque
+el código dentro de tres meses.</p>
+</article>
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1D1D1B">
+<title>Servidor de correo · EterClack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="saltar" href="#contenido">Saltar al contenido</a>
+
+<div class="marco">
+  <aside class="lateral">
+    <a class="marca" href="index.html" aria-label="EterClack, inicio">
+      <span class="marca-tipo">eter<br>clack</span>
+      <span class="marca-esq"><i class="esq tr"></i><i class="esq br"></i></span>
+    </a>
+    <nav>
+      <a href="index.html">Inicio</a>
+      <a href="interfaz.html">La interfaz</a>
+      <a href="00-plan-implementacion.html">Plan de implementación</a>
+      <a href="01-arquitectura.html">Arquitectura</a>
+      <a href="02-entorno-local.html">Entorno local</a>
+      <a href="03-servidor-correo.html" aria-current="page">Servidor de correo</a>
+      <a href="04-wompi.html">Wompi</a>
+      <a href="05-modelo-datos.html">Modelo de datos</a>
+      <a href="06-despliegue-hostinger.html">Despliegue Hostinger</a>
+      <a href="07-plan-de-pruebas.html">Plan de pruebas</a>
+      <a href="08-plan-de-despliegue.html">Plan de despliegue</a>
+    </nav>
+    <p class="lateral-pie">ETERnidad<br>a un solo CLACK</p>
+  </aside>
+
+  <main id="contenido" class="doc">
+    <header class="cabecera">
+      <h1>Servidor de correo</h1>
+      <p class="lede">DMS, DKIM/SPF/DMARC, entregabilidad</p>
+    </header>
+    <article class="md"><h1>03 — Servidor de correo propio</h1>
+<p><strong>Alcance nuevo.</strong> La cotización contemplaba «proveedor transaccional externo». Este documento
+reemplaza esa línea por un subsistema construido y operado por nosotros.</p>
+<hr>
+<h2>1. Qué hay que entender antes de empezar</h2>
+<p>Montar un servidor de correo es fácil. <strong>Que los correos lleguen a la bandeja de entrada es lo
+difícil.</strong> Gmail, Outlook y Yahoo desconfían por defecto de cualquier IP que no conocen, y una IP de
+VPS recién asignada puede venir con historial ajeno.</p>
+<p>Este plan asume ese trabajo explícitamente: autenticación correcta (SPF, DKIM, DMARC), PTR,
+calentamiento gradual y monitoreo continuo. No es una tarea que se cierra en un sprint — es una
+responsabilidad operativa permanente.</p>
+<p><strong>Dos hechos que condicionan todo el diseño:</strong></p>
+<ol>
+<li><strong>Hostinger no bloquea el puerto 25 en VPS</strong>, según su documentación de soporte. Si aparece
+bloqueado, la causa es el firewall del propio VPS. → <em>Verificar en la semana 28, antes de
+comprometer la fecha de la Fase 2.</em></li>
+<li><strong>Hostinger limita el envío saliente a 5 correos por minuto.</strong> Este es el dato que más forma le
+da a la arquitectura: no es una anécdota, es una restricción de diseño. Todo el correo sale por
+una cola estrangulada a 4/min (margen de seguridad), lo que da un techo de <strong>240 correos/hora</strong>.
+Suficiente para el volumen transaccional del MVP, pero convierte cualquier envío masivo en
+imposible.</li>
+</ol>
+<h3>1.1 El interruptor de emergencia</h3>
+<p>Desde el día uno, el transporte de correo es una variable de entorno con tres valores:</p>
+<pre><code>MAIL_TRANSPORT = mailpit | smtp | relay
+</code></pre>
+<ul>
+<li><code>mailpit</code> — local, captura todo</li>
+<li><code>smtp</code> — servidor propio (producción)</li>
+<li><code>relay</code> — proveedor externo (Brevo, Resend, Amazon SES…)</li>
+</ul>
+<p>Si la entregabilidad del servidor propio se degrada de forma crítica en producción, se cambia una
+variable y se reinicia. <strong>El correo vuelve a funcionar en menos de dos minutos.</strong> Esta salida no es
+opcional: es la mitigación del riesgo más probable del proyecto.</p>
+<hr>
+<h2>2. Qué se está construyendo</h2>
+<p>Cuatro capacidades distintas, que a menudo se confunden:</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Capacidad</th>
+<th>Para qué</th>
+<th>Prioridad</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Envío transaccional</strong></td>
+<td>Verificaciones, notificaciones, contratos, avisos de pago</td>
+<td><strong>Crítica</strong> — el producto no funciona sin ella</td>
+</tr>
+<tr>
+<td><strong>Recepción de rebotes</strong></td>
+<td>Detectar direcciones inválidas y proteger la reputación</td>
+<td><strong>Alta</strong></td>
+</tr>
+<tr>
+<td><strong>Buzones reales</strong></td>
+<td><code>hola@</code>, <code>soporte@</code>, <code>admin@</code> para el equipo de EterClack</td>
+<td>Media</td>
+</tr>
+<tr>
+<td><strong>Recepción de reportes DMARC</strong></td>
+<td>Vigilar suplantación y alineación</td>
+<td>Media</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h2>3. Elección del stack</h2>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Opción</th>
+<th>Peso</th>
+<th>UI</th>
+<th>Veredicto</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong><code>docker-mailserver</code> (DMS)</strong></td>
+<td>~1 GB RAM</td>
+<td>No (configuración por archivos)</td>
+<td><strong>Elegida</strong></td>
+</tr>
+<tr>
+<td>Mailcow</td>
+<td>~6 GB RAM</td>
+<td>Sí, completa</td>
+<td>Demasiado para el VPS compartido con la app; se justifica solo con webmail para el equipo</td>
+</tr>
+<tr>
+<td>Mailu</td>
+<td>~2 GB RAM</td>
+<td>Sí, básica</td>
+<td>Alternativa razonable</td>
+</tr>
+<tr>
+<td>Stalwart</td>
+<td>~0,5 GB RAM</td>
+<td>Sí, moderna</td>
+<td>Muy prometedor y ligero, pero menos rodaje en producción</td>
+</tr>
+</tbody></table></div>
+<p><strong>Por qué DMS:</strong></p>
+<ul>
+<li>Postfix + Dovecot + Rspamd + Fail2ban, todos componentes con décadas de rodaje.</li>
+<li><strong>Configuración en archivos, versionable en git.</strong> Reproducible entre local y producción; nada de
+ajustes hechos a mano en una interfaz que después nadie recuerda.</li>
+<li>Ligero: convive con Postgres, Redis, MinIO y la API en el mismo VPS.</li>
+<li>Gestión de DKIM incluida (<code>setup config dkim</code>).</li>
+<li>Documentación excelente y comunidad activa.</li>
+</ul>
+<p>Componentes:</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Función</th>
+<th>Software</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>MTA (envío/recepción SMTP)</td>
+<td>Postfix</td>
+</tr>
+<tr>
+<td>IMAP (buzones)</td>
+<td>Dovecot</td>
+</tr>
+<tr>
+<td>Antispam, antivirus, firma DKIM</td>
+<td>Rspamd</td>
+</tr>
+<tr>
+<td>Bloqueo de fuerza bruta</td>
+<td>Fail2ban</td>
+</tr>
+<tr>
+<td>Certificados TLS</td>
+<td>Compartidos con Caddy vía volumen</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h2>4. Diseño de la capa de correo en la aplicación</h2>
+<p>El MTA solo transporta. La lógica —qué se envía, a quién, cuándo, con qué plantilla y qué pasa si
+falla— vive en el módulo <code>mail</code> de la API.</p>
+<pre><code>Evento de negocio
+      │
+      ▼
+MailService.send({ template, to, data, priority })
+      │
+      ├─ ¿destinatario en lista de supresión? → descartar y registrar
+      ├─ renderizar plantilla (React Email → HTML + texto plano)
+      ├─ persistir en tabla `emails` (estado: queued)
+      │
+      ▼
+Cola BullMQ  «mail»   ── limiter: { max: 4, duration: 60_000 }
+      │                  ── prioridades: 1 crítico · 5 normal · 10 informativo
+      │                  ── attempts: 5, backoff exponencial
+      ▼
+Worker de correo → Nodemailer → SMTP (Mailpit | DMS | relay)
+      │
+      ├─ éxito → estado `sent`, guardar message-id
+      └─ fallo → reintento; agotados → estado `failed` + alerta al admin
+      │
+      ▼
+Buzón bounces@ (IMAP) ── worker lector ── analiza DSN
+      │
+      ├─ rebote duro (5.x.x) → lista de supresión permanente
+      └─ rebote blando (4.x.x) → contador; 3 seguidos → supresión temporal
+</code></pre>
+<h3>4.1 Prioridades de la cola</h3>
+<p>Con solo 4 correos por minuto, <strong>el orden importa</strong>. Un lote de 50 avisos informativos no puede
+retrasar 15 minutos la verificación de un usuario que está esperando frente a la pantalla.</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Prioridad</th>
+<th>Correos</th>
+<th>Espera aceptable</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1 — Crítico</td>
+<td>Verificación de cuenta, recuperación de contraseña, confirmación de pago</td>
+<td>&lt; 30 s</td>
+</tr>
+<tr>
+<td>5 — Normal</td>
+<td>Nueva solicitud, propuesta, contrato aceptado, entrega lista, dispersión pagada</td>
+<td>&lt; 5 min</td>
+</tr>
+<tr>
+<td>10 — Informativo</td>
+<td>Resúmenes, recordatorios, avisos de admin</td>
+<td>&lt; 1 h</td>
+</tr>
+</tbody></table></div>
+<h3>4.2 Catálogo de correos transaccionales</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Plantilla</th>
+<th>Destinatario</th>
+<th>Disparador</th>
+<th>Prioridad</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td><code>verify-email</code></td>
+<td>Cliente/Fotógrafo</td>
+<td>Registro</td>
+<td>1</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>password-reset</code></td>
+<td>Cualquiera</td>
+<td>Solicitud de recuperación</td>
+<td>1</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>photographer-application-received</code></td>
+<td>Fotógrafo</td>
+<td>Postulación enviada</td>
+<td>5</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>photographer-approved</code> / <code>rejected</code></td>
+<td>Fotógrafo</td>
+<td>Decisión del admin</td>
+<td>5</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>new-request</code></td>
+<td>Fotógrafo</td>
+<td>Cliente crea solicitud</td>
+<td>5</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>proposal-sent</code></td>
+<td>Cliente</td>
+<td>Fotógrafo propone condiciones</td>
+<td>5</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>contract-accepted</code></td>
+<td>Ambos</td>
+<td>Cliente acepta contrato</td>
+<td>5</td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>payment-approved</code></td>
+<td>Ambos</td>
+<td>Webhook Wompi <code>APPROVED</code></td>
+<td>1</td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>payment-failed</code></td>
+<td>Cliente</td>
+<td>Webhook <code>DECLINED</code> / <code>ERROR</code></td>
+<td>1</td>
+</tr>
+<tr>
+<td>10</td>
+<td><code>gallery-published</code></td>
+<td>Cliente</td>
+<td>Fotógrafo publica galería</td>
+<td>5</td>
+</tr>
+<tr>
+<td>11</td>
+<td><code>selection-submitted</code></td>
+<td>Fotógrafo</td>
+<td>Cliente envía selección final</td>
+<td>5</td>
+</tr>
+<tr>
+<td>12</td>
+<td><code>delivery-ready</code></td>
+<td>Cliente</td>
+<td>Fotógrafo marca entrega lista</td>
+<td>5</td>
+</tr>
+<tr>
+<td>13</td>
+<td><code>download-links</code></td>
+<td>Cliente</td>
+<td>Genera enlaces firmados</td>
+<td>5</td>
+</tr>
+<tr>
+<td>14</td>
+<td><code>payout-scheduled</code></td>
+<td>Fotógrafo</td>
+<td>Saldo entra en corrida</td>
+<td>10</td>
+</tr>
+<tr>
+<td>15</td>
+<td><code>payout-paid</code></td>
+<td>Fotógrafo</td>
+<td>Dispersión confirmada</td>
+<td>5</td>
+</tr>
+<tr>
+<td>16</td>
+<td><code>payout-failed</code></td>
+<td>Fotógrafo + Admin</td>
+<td>Dispersión rechazada</td>
+<td>1</td>
+</tr>
+<tr>
+<td>17</td>
+<td><code>admin-alert</code></td>
+<td>Admin</td>
+<td>Webhook fallido, disco al 70 %, cola atascada</td>
+<td>1</td>
+</tr>
+</tbody></table></div>
+<p><strong>Reglas para todas las plantillas:</strong></p>
+<ul>
+<li>Versión HTML <strong>y</strong> texto plano. Solo-HTML penaliza la puntuación de spam.</li>
+<li>Asunto sin mayúsculas gritadas, sin <code>!!!</code>, sin «GRATIS», sin «URGENTE».</li>
+<li><code>From: EterClack &lt;no-reply@eterclack.com&gt;</code>, <code>Reply-To: hola@eterclack.com</code>.</li>
+<li>Enlace de baja en los informativos (no en los transaccionales críticos).</li>
+<li>Sin imágenes remotas pesadas; el logo va incrustado o alojado en <code>cdn.eterclack.com</code>.</li>
+<li>Relación texto/HTML sana; nada de un correo que sea una sola imagen.</li>
+</ul>
+<hr>
+<h2>5. Registros DNS (en hPanel de Hostinger)</h2>
+<p>Se configuran en la <strong>Fase 2, sprint S10</strong>. El dominio ya está en Hostinger: la zona DNS se edita en
+hPanel, sin mover nameservers.</p>
+<pre><code class="language-dns">; ── Aplicación ────────────────────────────────────────────────
+@                   A       &lt;IP_VPS&gt;
+www                 A       &lt;IP_VPS&gt;
+api                 A       &lt;IP_VPS&gt;
+cdn                 A       &lt;IP_VPS&gt;
+
+; ── Correo ────────────────────────────────────────────────────
+mail                A       &lt;IP_VPS&gt;
+@                   MX  10  mail.eterclack.com.
+
+; SPF — solo el servidor propio puede enviar en nombre del dominio
+@                   TXT     &quot;v=spf1 mx a:mail.eterclack.com -all&quot;
+
+; DKIM — la clave pública la genera DMS, ver §6.2
+mail._domainkey     TXT     &quot;v=DKIM1; k=rsa; p=MIIBIjANBgkqh...&quot;
+
+; DMARC — empieza permisivo, endurece por etapas (§7.3)
+_dmarc              TXT     &quot;v=DMARC1; p=none; rua=mailto:dmarc@eterclack.com; ruf=mailto:dmarc@eterclack.com; fo=1; pct=100; adkim=s; aspf=s&quot;
+
+; MTA-STS y TLS-RPT — opcionales, suman confianza
+_mta-sts            TXT     &quot;v=STSv1; id=20260901000000&quot;
+_smtp._tls          TXT     &quot;v=TLSRPTv1; rua=mailto:tlsrpt@eterclack.com&quot;
+</code></pre>
+<p>Además, y <strong>fuera de DNS</strong>:</p>
+<ul>
+<li><strong>PTR / rDNS</strong>: <code>&lt;IP_VPS&gt;</code> → <code>mail.eterclack.com</code>. Se solicita a soporte de Hostinger; no se puede
+configurar desde hPanel. <strong>Sin PTR, Gmail rechaza o marca como spam casi con certeza.</strong> Es el
+primer trámite del sprint S10.</li>
+<li>Alias obligatorios por RFC 2142: <code>postmaster@</code> y <code>abuse@</code> deben existir y ser leídos.</li>
+</ul>
+<blockquote>
+<p>⚠️ <strong>Cutover de MX.</strong> Si el dominio ya recibe correo en Hostinger (Titan o similar), cambiar el MX
+corta ese servicio. Antes de tocarlo: inventariar buzones existentes, exportar, avisar y ejecutar
+el cambio en ventana de bajo tráfico. TTL a 300 s <strong>24 horas antes</strong>, para poder revertir rápido.</p>
+</blockquote>
+<hr>
+<h2>6. Plan de construcción</h2>
+<h3>S4 · Semana 14 — Cimientos</h3>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> Módulo <code>mail</code> con transporte intercambiable (mailpit | smtp | relay) — <strong>hecho en Fase 1</strong></li>
+<li><input disabled="" type="checkbox"> Cola BullMQ con limitador y prioridades</li>
+<li><input disabled="" type="checkbox"> Tabla <code>emails</code>: estado, plantilla, destinatario, message-id, intentos, error</li>
+<li><input disabled="" type="checkbox"> Plantillas 1 y 2 (verificación y recuperación) en React Email, con texto plano</li>
+<li><input disabled="" type="checkbox"> Ruta <code>/dev/emails</code> para previsualizar todas las plantillas sin enviarlas</li>
+<li><input disabled="" type="checkbox"> Pruebas de integración que leen la API de Mailpit</li>
+</ul>
+<h3>S4 · Semana 15 — El MTA real, en local</h3>
+<ul>
+<li><input disabled="" type="checkbox"> <code>docker-mailserver</code> bajo perfil de compose, con configuración en <code>infra/mailserver/</code></li>
+<li><input disabled="" type="checkbox"> Buzones: <code>no-reply@</code>, <code>hola@</code>, <code>soporte@</code>, <code>bounces@</code>, <code>dmarc@</code>, <code>postmaster@</code>, <code>abuse@</code></li>
+<li><input disabled="" type="checkbox"> Generar claves DKIM: <code>docker exec mailserver setup config dkim domain eterclack.com</code></li>
+<li><input disabled="" type="checkbox"> Rspamd activo; ajustar umbrales</li>
+<li><input disabled="" type="checkbox"> Apuntar la API a DMS (<code>MAIL_TRANSPORT=smtp</code>, puerto 1587) y enviar de extremo a extremo</li>
+<li><input disabled="" type="checkbox"> Verificar la firma DKIM en la cabecera del mensaje recibido</li>
+<li><input disabled="" type="checkbox"> Documentar la configuración en <code>infra/mailserver/README.md</code></li>
+</ul>
+<h3>S4 · Semana 16 — Rebotes y resto del catálogo</h3>
+<ul>
+<li><input disabled="" type="checkbox"> Worker IMAP que lee <code>bounces@</code> cada 5 minutos</li>
+<li><input disabled="" type="checkbox"> Análisis de DSN: distinguir rebote duro (5.x.x) de blando (4.x.x)</li>
+<li><input disabled="" type="checkbox"> Tabla <code>email_suppressions</code> con motivo, origen y fecha; consulta obligatoria antes de encolar</li>
+<li><input disabled="" type="checkbox"> Plantillas 3 a 17</li>
+<li><input disabled="" type="checkbox"> Panel admin: bandeja de correos enviados, fallidos y suprimidos, con reenvío manual</li>
+<li><input disabled="" type="checkbox"> Alerta cuando la cola supere 100 pendientes o haya más de 5 fallos seguidos</li>
+</ul>
+<h3>S10 · Semana 31 — Producción y entregabilidad</h3>
+<ul>
+<li><input disabled="" type="checkbox"> Registros DNS en hPanel (§5)</li>
+<li><input disabled="" type="checkbox"> Solicitar PTR a soporte de Hostinger y <strong>confirmar</strong> que quedó aplicado</li>
+<li><input disabled="" type="checkbox"> TLS real: compartir los certificados de Caddy con DMS por volumen</li>
+<li><input disabled="" type="checkbox"> Verificar que el puerto 25 saliente funciona: <code>telnet gmail-smtp-in.l.google.com 25</code></li>
+<li><input disabled="" type="checkbox"> Cutover de MX con TTL reducido y plan de reversa</li>
+<li><input disabled="" type="checkbox"> Fail2ban y ClamAV activos</li>
+<li><input disabled="" type="checkbox"> Ejecutar el calentamiento (§7.2)</li>
+<li><input disabled="" type="checkbox"> Puntaje 10/10 en mail-tester.com</li>
+<li><input disabled="" type="checkbox"> Alta en Google Postmaster Tools y Microsoft SNDS</li>
+<li><input disabled="" type="checkbox"> Verificar ausencia en listas negras: Spamhaus, Barracuda, SORBS</li>
+<li><input disabled="" type="checkbox"> Parseo de reportes DMARC agregados hacia el panel admin</li>
+<li><input disabled="" type="checkbox"> Copia de seguridad de las claves DKIM (si se pierden, todo el correo falla la verificación)</li>
+</ul>
+<hr>
+<h2>7. Entregabilidad</h2>
+<h3>7.1 Lista de verificación</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Control</th>
+<th>Efecto si falta</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>PTR/rDNS coincidente con el HELO</td>
+<td>Rechazo casi seguro en Gmail</td>
+</tr>
+<tr>
+<td>SPF con <code>-all</code></td>
+<td>Suplantación posible; puntuación de spam más alta</td>
+</tr>
+<tr>
+<td>DKIM firmando el 100 % del correo saliente</td>
+<td>Sin DKIM no hay alineación DMARC</td>
+</tr>
+<tr>
+<td>DMARC publicado</td>
+<td>Sin visibilidad de suplantación</td>
+</tr>
+<tr>
+<td>HELO/EHLO = <code>mail.eterclack.com</code> (FQDN, no <code>localhost</code>)</td>
+<td>Rechazo</td>
+</tr>
+<tr>
+<td>TLS en saliente (opportunistic)</td>
+<td>Penalización</td>
+</tr>
+<tr>
+<td><code>List-Unsubscribe</code> en informativos</td>
+<td>Marcas de spam de usuarios</td>
+</tr>
+<tr>
+<td>Volumen constante, sin picos</td>
+<td>Los picos disparan alarmas antispam</td>
+</tr>
+<tr>
+<td>Tasa de rebote &lt; 5 %</td>
+<td>Reputación cae rápido</td>
+</tr>
+<tr>
+<td>Cero envíos a direcciones no verificadas</td>
+<td>Trampas de spam</td>
+</tr>
+</tbody></table></div>
+<h3>7.2 Calentamiento de IP — semana 31</h3>
+<p>Una IP nueva enviando 200 correos el primer día es la definición de comportamiento de spammer.</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Día</th>
+<th>Volumen máximo</th>
+<th>Destinos</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1–2</td>
+<td>10/día</td>
+<td>Cuentas propias en Gmail, Outlook, Yahoo — abrir y marcar «no es spam»</td>
+</tr>
+<tr>
+<td>3–5</td>
+<td>30/día</td>
+<td>Sumar el equipo de EterClack</td>
+</tr>
+<tr>
+<td>6–10</td>
+<td>80/día</td>
+<td>Sumar los fotógrafos del piloto</td>
+</tr>
+<tr>
+<td>11–14</td>
+<td>150/día</td>
+<td>Tráfico del piloto</td>
+</tr>
+<tr>
+<td>15+</td>
+<td>Normal</td>
+<td>Techo real: 240/h por el límite de Hostinger</td>
+</tr>
+</tbody></table></div>
+<p>Regla: <strong>si la tasa de rebote pasa de 5 % o aparece un bloqueo, se detiene el escalado y se
+diagnostica</strong> antes de seguir.</p>
+<h3>7.3 Endurecimiento progresivo de DMARC</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Momento</th>
+<th>Política</th>
+<th>Condición para avanzar</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Semana 31</td>
+<td><code>p=none</code></td>
+<td>Publicar y empezar a recibir reportes</td>
+</tr>
+<tr>
+<td>Semana 33</td>
+<td><code>p=quarantine; pct=25</code></td>
+<td>Dos semanas de reportes sin fallos de alineación</td>
+</tr>
+<tr>
+<td>Mes 2 posproducción</td>
+<td><code>p=quarantine; pct=100</code></td>
+<td>Sin incidentes</td>
+</tr>
+<tr>
+<td>Mes 3 posproducción</td>
+<td><code>p=reject</code></td>
+<td>Alineación al 100 % confirmada</td>
+</tr>
+</tbody></table></div>
+<p><strong>No saltar etapas.</strong> Poner <code>p=reject</code> antes de tiempo hace desaparecer correo legítimo en silencio,
+que es el peor modo de falla posible: nadie se entera.</p>
+<hr>
+<h2>8. Operación continua</h2>
+<p>Esto es lo que la cotización no incluía y ahora es responsabilidad permanente:</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Frecuencia</th>
+<th>Tarea</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Diaria</td>
+<td>Revisar cola de correo, fallos y tasa de rebote (panel admin)</td>
+</tr>
+<tr>
+<td>Semanal</td>
+<td>Revisar reportes DMARC agregados; verificar listas negras</td>
+</tr>
+<tr>
+<td>Semanal</td>
+<td>Google Postmaster Tools: reputación de dominio e IP</td>
+</tr>
+<tr>
+<td>Mensual</td>
+<td>Actualizar la imagen de DMS y aplicar parches</td>
+</tr>
+<tr>
+<td>Trimestral</td>
+<td>Rotar claves DKIM (con periodo de solapamiento)</td>
+</tr>
+<tr>
+<td>Continua</td>
+<td>Responder <code>abuse@</code> y <code>postmaster@</code> — ignorarlos daña la reputación</td>
+</tr>
+</tbody></table></div>
+<h3>8.1 Alertas automáticas</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Condición</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Cola de correo &gt; 100 pendientes durante 10 min</td>
+<td>Alerta al admin</td>
+</tr>
+<tr>
+<td>Tasa de rebote &gt; 5 % en 24 h</td>
+<td>Alerta y pausa de envíos informativos</td>
+</tr>
+<tr>
+<td>Aparición en lista negra</td>
+<td>Alerta crítica</td>
+</tr>
+<tr>
+<td>Puerto 25 saliente inalcanzable</td>
+<td>Alerta crítica</td>
+</tr>
+<tr>
+<td>Certificado TLS a menos de 15 días de vencer</td>
+<td>Alerta</td>
+</tr>
+<tr>
+<td>Disco de <code>/var/mail</code> al 80 %</td>
+<td>Alerta</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h2>9. Fuentes</h2>
+<ul>
+<li>Hostinger — Puerto SMTP 25 en VPS y límite de 5 correos/min: <a href="https://www.hostinger.com/support/7854530-is-smtp-port-25-blocked-on-hostinger-vps/">https://www.hostinger.com/support/7854530-is-smtp-port-25-blocked-on-hostinger-vps/</a></li>
+<li>docker-mailserver — documentación: <a href="https://docker-mailserver.github.io/docker-mailserver/latest/">https://docker-mailserver.github.io/docker-mailserver/latest/</a></li>
+<li>RFC 2142 — buzones de rol (<code>postmaster</code>, <code>abuse</code>): <a href="https://www.rfc-editor.org/rfc/rfc2142">https://www.rfc-editor.org/rfc/rfc2142</a></li>
+</ul>
+<p>Consulta realizada el 22 de agosto de 2026. Verificar la política vigente de Hostinger antes de la
+Fase 2.</p>
+</article>
+  </main>
+</div>
+</body>
+</html>

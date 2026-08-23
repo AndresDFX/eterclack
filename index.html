@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1D1D1B">
+<title>EterClack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="saltar" href="#contenido">Saltar al contenido</a>
+
+<div class="marco">
+  <aside class="lateral">
+    <a class="marca" href="index.html" aria-label="EterClack, inicio">
+      <span class="marca-tipo">eter<br>clack</span>
+      <span class="marca-esq"><i class="esq tr"></i><i class="esq br"></i></span>
+    </a>
+    <nav>
+      <a href="index.html" aria-current="page">Inicio</a>
+      <a href="interfaz.html">La interfaz</a>
+      <a href="00-plan-implementacion.html">Plan de implementación</a>
+      <a href="01-arquitectura.html">Arquitectura</a>
+      <a href="02-entorno-local.html">Entorno local</a>
+      <a href="03-servidor-correo.html">Servidor de correo</a>
+      <a href="04-wompi.html">Wompi</a>
+      <a href="05-modelo-datos.html">Modelo de datos</a>
+      <a href="06-despliegue-hostinger.html">Despliegue Hostinger</a>
+      <a href="07-plan-de-pruebas.html">Plan de pruebas</a>
+      <a href="08-plan-de-despliegue.html">Plan de despliegue</a>
+    </nav>
+    <p class="lateral-pie">ETERnidad<br>a un solo CLACK</p>
+  </aside>
+
+  <main id="contenido" class="doc">
+    <header class="cabecera">
+      <h1>EterClack</h1>
+      <p class="lede">Marketplace de servicios fotográficos. Reserva directa sobre calendario, contrato con evidencia y pagos con dispersión al fotógrafo.</p>
+    </header>
+    
+<section class="aviso">
+  <p class="overline">Sobre este sitio</p>
+  <p>
+    Aquí está la documentación del proyecto y las capturas de la interfaz.
+    <strong>La aplicación no corre en esta dirección</strong>: GitHub Pages sirve archivos
+    estáticos, y la plataforma necesita API, base de datos, almacenamiento y sesiones.
+    Su destino es un VPS — el detalle está en
+    <a href="08-plan-de-despliegue.html">el plan de despliegue</a>.
+  </p>
+</section>
+
+<section>
+  <h2>Estado por fases</h2>
+  <ol class="fases">
+    
+    <li class="ok">
+      <span class="fase-n">0</span>
+      <div>
+        <h3>Fundaciones</h3>
+        <p>Docker, Postgres, Redis, MinIO, esquema, semillas, sistema de marca</p>
+      </div>
+      <span class="fase-estado">Hecho</span>
+    </li>
+    <li class="ok">
+      <span class="fase-n">1</span>
+      <div>
+        <h3>Identidad</h3>
+        <p>Registro, verificación, sesiones, RBAC por recurso, auditoría</p>
+      </div>
+      <span class="fase-estado">Hecho</span>
+    </li>
+    <li class="ok">
+      <span class="fase-n">2</span>
+      <div>
+        <h3>Descubrimiento</h3>
+        <p>Perfiles, aprobación, tres productos, búsqueda con filtros</p>
+      </div>
+      <span class="fase-estado">Hecho</span>
+    </li>
+    <li class="ok">
+      <span class="fase-n">3</span>
+      <div>
+        <h3>Calendario y reserva</h3>
+        <p>El fotógrafo publica franjas; el cliente reserva directo</p>
+      </div>
+      <span class="fase-estado">Hecho</span>
+    </li>
+    <li class="ok">
+      <span class="fase-n">4</span>
+      <div>
+        <h3>Contrato y PWA</h3>
+        <p>Evidencia inmutable de aceptación; app instalable</p>
+      </div>
+      <span class="fase-estado">Hecho</span>
+    </li>
+    <li class="pend">
+      <span class="fase-n">5</span>
+      <div>
+        <h3>Galerías y entrega</h3>
+        <p>Subida directa, miniaturas, selección, descargas firmadas</p>
+      </div>
+      <span class="fase-estado">Pendiente</span>
+    </li>
+    <li class="pend">
+      <span class="fase-n">6</span>
+      <div>
+        <h3>Wompi recaudo</h3>
+        <p>Checkout, firma de integridad, webhook idempotente</p>
+      </div>
+      <span class="fase-estado">Pendiente</span>
+    </li>
+    <li class="pend">
+      <span class="fase-n">7</span>
+      <div>
+        <h3>Wompi dispersión</h3>
+        <p>Libro contable, KYC bancario, corridas de pago</p>
+      </div>
+      <span class="fase-estado">Pendiente</span>
+    </li>
+    <li class="pend">
+      <span class="fase-n">8</span>
+      <div>
+        <h3>Correo propio</h3>
+        <p>docker-mailserver, DKIM, rebotes, supresión</p>
+      </div>
+      <span class="fase-estado">Pendiente</span>
+    </li>
+    <li class="pend">
+      <span class="fase-n">9</span>
+      <div>
+        <h3>Hostinger</h3>
+        <p>VPS, DNS, TLS, MX, calentamiento, producción</p>
+      </div>
+      <span class="fase-estado">Pendiente</span>
+    </li>
+  </ol>
+</section>
+
+<section>
+  <h2>Documentación</h2>
+  <div class="tarjetas">
+    <a class="tarjeta" href="00-plan-implementacion.html"><span class="overline">00</span><h3>Plan de implementación</h3><p>Alcance, fases, hitos, impacto y riesgos</p></a><a class="tarjeta" href="01-arquitectura.html"><span class="overline">01</span><h3>Arquitectura</h3><p>Stack, mapeo Cloudflare → Hostinger, dimensionamiento</p></a><a class="tarjeta" href="02-entorno-local.html"><span class="overline">02</span><h3>Entorno local</h3><p>Compose, variables, semillas, pruebas</p></a><a class="tarjeta" href="03-servidor-correo.html"><span class="overline">03</span><h3>Servidor de correo</h3><p>DMS, DKIM/SPF/DMARC, entregabilidad</p></a><a class="tarjeta" href="04-wompi.html"><span class="overline">04</span><h3>Wompi</h3><p>Recaudo y dispersión a fotógrafos</p></a><a class="tarjeta" href="05-modelo-datos.html"><span class="overline">05</span><h3>Modelo de datos</h3><p>Entidades, estados, libro contable</p></a><a class="tarjeta" href="06-despliegue-hostinger.html"><span class="overline">06</span><h3>Despliegue Hostinger</h3><p>Provisión, DNS, cutover, operación</p></a><a class="tarjeta" href="07-plan-de-pruebas.html"><span class="overline">07</span><h3>Plan de pruebas</h3><p>Qué se prueba, cómo y con qué criterio</p></a><a class="tarjeta" href="08-plan-de-despliegue.html"><span class="overline">08</span><h3>Plan de despliegue</h3><p>De local a producción, con reversa definida</p></a>
+  </div>
+</section>
+
+<section>
+  <h2>Cómo levantarla</h2>
+  <p>Requisito único: Docker.</p>
+  <pre><code>git clone &lt;este-repositorio&gt;
+cd eterclack
+cp .env.example .env
+npm run up
+npm run db:migrate
+npm run db:seed</code></pre>
+  <p>La web queda en <code>localhost:5173</code> y los correos se capturan en
+     <code>localhost:8025</code>.</p>
+</section>
+  </main>
+</div>
+</body>
+</html>

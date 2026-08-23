@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1D1D1B">
+<title>Plan de implementación · EterClack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="saltar" href="#contenido">Saltar al contenido</a>
+
+<div class="marco">
+  <aside class="lateral">
+    <a class="marca" href="index.html" aria-label="EterClack, inicio">
+      <span class="marca-tipo">eter<br>clack</span>
+      <span class="marca-esq"><i class="esq tr"></i><i class="esq br"></i></span>
+    </a>
+    <nav>
+      <a href="index.html">Inicio</a>
+      <a href="interfaz.html">La interfaz</a>
+      <a href="00-plan-implementacion.html" aria-current="page">Plan de implementación</a>
+      <a href="01-arquitectura.html">Arquitectura</a>
+      <a href="02-entorno-local.html">Entorno local</a>
+      <a href="03-servidor-correo.html">Servidor de correo</a>
+      <a href="04-wompi.html">Wompi</a>
+      <a href="05-modelo-datos.html">Modelo de datos</a>
+      <a href="06-despliegue-hostinger.html">Despliegue Hostinger</a>
+      <a href="07-plan-de-pruebas.html">Plan de pruebas</a>
+      <a href="08-plan-de-despliegue.html">Plan de despliegue</a>
+    </nav>
+    <p class="lateral-pie">ETERnidad<br>a un solo CLACK</p>
+  </aside>
+
+  <main id="contenido" class="doc">
+    <header class="cabecera">
+      <h1>Plan de implementación</h1>
+      <p class="lede">Alcance, fases, hitos, impacto y riesgos</p>
+    </header>
+    <article class="md"><h1>00 — Plan de implementación EterClack MVP</h1>
+<p><strong>Fecha:</strong> agosto 2026
+<strong>Base:</strong> cotización MVP 2026 (<code>base/cotizacion_eterclack_mvp_2026.pdf</code>)
+<strong>Cambios aplicados:</strong> Cloudflare → Hostinger · correo externo → servidor propio · PayU → Wompi con dispersión automática
+<strong>Estrategia:</strong> Fase 1 completa en local · Fase 2 despliegue en Hostinger</p>
+<hr>
+<h2>1. Qué cambia frente a la cotización, y por qué importa</h2>
+<p>La cotización cerró un alcance de <strong>COP $7.000.000 / 24 semanas</strong> sobre tres supuestos que ahora
+cambian. No es un cambio cosmético de proveedor: dos de los tres mueven trabajo que estaba
+explícitamente <strong>excluido</strong> del precio.</p>
+<h3>1.1 Cloudflare → Hostinger</h3>
+<p>Neutro-negativo en esfuerzo. Se pierde infraestructura administrada (escalado, CDN, WAF, TLS,
+backups del proveedor) y se gana control total con un costo mensual predecible. El trabajo que
+Cloudflare hacía sin intervención —provisión, endurecimiento, TLS, backups, monitoreo, parches—
+pasa a ser nuestro, en Fase 2.</p>
+<p>Detalle técnico en <a href="01-arquitectura.html">01 — Arquitectura</a>.</p>
+<h3>1.2 Correo externo → servidor de correo propio</h3>
+<p><strong>Alcance nuevo.</strong> La cotización decía «Correo: proveedor transaccional externo» — es decir, una
+línea de configuración. Un servidor propio es un subsistema completo: MTA, IMAP, antispam, firmas
+DKIM, gestión de rebotes, lista de supresión, reputación de IP y monitoreo de entregabilidad.</p>
+<blockquote>
+<p><strong>El riesgo real no es montarlo, es que los correos lleguen a la bandeja de entrada.</strong> Gmail y
+Outlook desconfían por defecto de una IP nueva. Se mitiga con SPF/DKIM/DMARC correctos, PTR,
+calentamiento gradual y monitoreo —todo eso está en el plan—, pero es una responsabilidad
+operativa permanente, no una tarea que se cierra y se olvida.</p>
+</blockquote>
+<p>Además, <strong>Hostinger limita el envío saliente a 5 correos por minuto en VPS</strong>. La arquitectura debe
+encolar y estrangular envíos desde el día uno. Detalle en <a href="03-servidor-correo.html">03 — Servidor de correo</a>.</p>
+<h3>1.3 PayU → Wompi con dispersión automática</h3>
+<p><strong>Alcance nuevo y el cambio de mayor impacto.</strong> La cotización era explícita:</p>
+<blockquote>
+<p>«&quot;Pagos a fotógrafos&quot; significa saldo y control interno, no dispersión automática.»</p>
+<p>«Split/dispersión automática: requiere producto PayU compatible, aprobación comercial/legal y <strong>nueva cotización</strong>.»</p>
+</blockquote>
+<p>Wompi sí tiene el producto que PayU nunca confirmó: <strong>Pagos a Terceros (Payouts)</strong>, con ambiente de
+pruebas, lotes, idempotencia y destino a cuentas bancarias, Nequi, Daviplata o llaves Bre-B. Eso
+desbloquea técnicamente la dispersión, pero trae consigo el trabajo que la cotización había evitado:
+libro contable, KYC bancario de fotógrafos, ventanas de retención, corridas de pago, reintentos,
+conciliación y trazabilidad de dinero de terceros.</p>
+<p>Detalle en <a href="04-wompi.html">04 — Wompi</a>.</p>
+<blockquote>
+<p>⚠️ <strong>Lo jurídico y tributario no lo resuelve el proveedor.</strong> Retener y dispersar dinero de terceros
+sigue exigiendo revisión de retenciones (retefuente / reteICA), facturación, RUT de los fotógrafos
+y política de reembolsos. Cambiar PayU por Wompi elimina el bloqueo técnico, no la obligación
+legal. Esto debe validarlo el contador y el abogado del cliente <strong>antes</strong> de la primera dispersión
+con dinero real.</p>
+</blockquote>
+<hr>
+<h2>2. Impacto en cronograma</h2>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Bloque</th>
+<th align="right">Cotización</th>
+<th align="right">Plan vigente</th>
+<th align="right">Δ</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Alcance funcional original (descubrimiento → entrega)</td>
+<td align="right">24 sem</td>
+<td align="right">24 sem</td>
+<td align="right">—</td>
+</tr>
+<tr>
+<td>Servidor de correo propio</td>
+<td align="right">0</td>
+<td align="right">3 sem</td>
+<td align="right">+3</td>
+</tr>
+<tr>
+<td>Dispersión automática Wompi (libro, KYC, corridas, conciliación)</td>
+<td align="right">0</td>
+<td align="right">4 sem</td>
+<td align="right">+4</td>
+</tr>
+<tr>
+<td>Infra autogestionada (provisión, CI/CD, backups, monitoreo)</td>
+<td align="right">0</td>
+<td align="right">2 sem</td>
+<td align="right">+2</td>
+</tr>
+<tr>
+<td>Ahorro por no depurar el modelo de ejecución de Workers/D1</td>
+<td align="right">—</td>
+<td align="right">−1 sem</td>
+<td align="right">−1</td>
+</tr>
+<tr>
+<td><strong>Total</strong></td>
+<td align="right"><strong>24 sem</strong></td>
+<td align="right"><strong>32 sem</strong></td>
+<td align="right"><strong>+8</strong></td>
+</tr>
+</tbody></table></div>
+<h3>Opción de compresión a ~26 semanas</h3>
+<p>Si la fecha manda sobre el alcance, así se recupera tiempo — y hay que decidirlo <strong>antes del hito
+H1</strong>, no después:</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Recorte</th>
+<th align="right">Ahorro</th>
+<th>Qué se pierde</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Arrancar con relay SMTP externo y construir el servidor propio después del piloto</td>
+<td align="right">−2 sem</td>
+<td>El correo propio se aplaza; el módulo ya queda abstraído para el cambio posterior</td>
+</tr>
+<tr>
+<td>Dispersión semiautomática: el admin aprueba y dispara el lote, sin corrida programada ni reintentos automáticos</td>
+<td align="right">−2,5 sem</td>
+<td>Menos automatización; el libro contable y la integración con la API sí quedan</td>
+</tr>
+<tr>
+<td>Descargas ZIP masivas → solo descarga individual firmada</td>
+<td align="right">−0,5 sem</td>
+<td>Fricción para el cliente en entregas grandes</td>
+</tr>
+<tr>
+<td>Observabilidad completa (Grafana/Loki) → Netdata + Uptime Kuma</td>
+<td align="right">−1 sem</td>
+<td>Menos capacidad de diagnóstico en producción</td>
+</tr>
+</tbody></table></div>
+<p><strong>Recomendación:</strong> no comprimir el bloque de pagos. Es donde un error cuesta dinero real y
+confianza. Si algo se aplaza, que sea el correo propio con un relay externo de por medio — es
+reversible sin tocar el modelo de datos.</p>
+<hr>
+<h2>3. Fases</h2>
+<h3>Fase 1 — Desarrollo y pruebas 100 % en local (semanas 1–29)</h3>
+<p>Todo corre en <code>docker compose</code> en la máquina de desarrollo: PostgreSQL, Redis, MinIO, Mailpit, el
+stack de correo real y la API. Wompi se integra contra <strong>sandbox</strong> usando un túnel público para
+recibir webhooks. No se compra VPS todavía.</p>
+<h3>Fase 2 — Despliegue en Hostinger (semanas 30–33)</h3>
+<p>Provisión del VPS, DNS en hPanel, migración de MX, calentamiento de IP, Wompi en producción, piloto
+con fotógrafos reales y estabilización.</p>
+<hr>
+<h2>4. Cronograma detallado</h2>
+<h3>4.1 Vía administrativa (arranca semana 1, en paralelo)</h3>
+<p>Estos trámites tienen tiempos que no controlamos. No bloquean el código, pero <strong>sí bloquean la Fase
+2</strong>. Si arrancan tarde, retrasan la salida a producción completa.</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Trámite</th>
+<th>Cuándo</th>
+<th>Responsable</th>
+<th>Depende de</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A1</td>
+<td>Crear comercio Wompi y obtener llaves de <strong>sandbox</strong></td>
+<td>Semana 1</td>
+<td>Cliente</td>
+<td>—</td>
+</tr>
+<tr>
+<td>A2</td>
+<td>Solicitar activación de <strong>Pagos a Terceros</strong> (requiere representante legal y verificación biométrica)</td>
+<td>Semana 1</td>
+<td>Cliente</td>
+<td>A1</td>
+</tr>
+<tr>
+<td>A3</td>
+<td>Definir comisión de plataforma, política de cancelación y ventana de retención</td>
+<td>Semana 2</td>
+<td>Cliente</td>
+<td>—</td>
+</tr>
+<tr>
+<td>A4</td>
+<td>Revisión tributaria: retenciones, facturación, RUT de fotógrafos</td>
+<td>Semanas 2–6</td>
+<td>Contador del cliente</td>
+<td>A3</td>
+</tr>
+<tr>
+<td>A5</td>
+<td>Textos legales: contrato, tratamiento de datos, derechos de imagen, menores</td>
+<td>Semanas 2–8</td>
+<td>Abogado del cliente</td>
+<td>—</td>
+</tr>
+<tr>
+<td>A6</td>
+<td>Identidad visual final, categorías y zonas</td>
+<td>Semana 3</td>
+<td>Cliente</td>
+<td>—</td>
+</tr>
+<tr>
+<td>A7</td>
+<td>Contratar VPS Hostinger y solicitar <strong>PTR/rDNS</strong> a soporte</td>
+<td>Semana 28</td>
+<td>Cliente</td>
+<td>—</td>
+</tr>
+<tr>
+<td>A8</td>
+<td>Llaves Wompi de <strong>producción</strong> y activación confirmada de Payouts</td>
+<td>Semana 30</td>
+<td>Cliente</td>
+<td>A2, A4</td>
+</tr>
+<tr>
+<td>A9</td>
+<td>Reclutar 3 fotógrafos con casos reales para el piloto</td>
+<td>Semana 30</td>
+<td>Cliente</td>
+<td>—</td>
+</tr>
+</tbody></table></div>
+<h3>4.2 Sprints de desarrollo</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Sprint</th>
+<th>Semanas</th>
+<th>Foco</th>
+<th>Entregable verificable</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>S0 — Fundaciones</strong></td>
+<td>1–2</td>
+<td>Monorepo, Docker Compose, CI, esqueleto de autenticación, módulo de correo abstracto con Mailpit</td>
+<td><code>docker compose up</code> levanta todo, healthcheck verde, un correo de prueba llega a Mailpit</td>
+</tr>
+<tr>
+<td><strong>S1 — Diseño y modelo</strong></td>
+<td>3–5</td>
+<td>Flujos, wireframes, sistema visual, esquema Prisma completo, migraciones, seeds</td>
+<td>Base migrada con datos semilla de los tres roles; wireframes aprobados (<strong>H1</strong>)</td>
+</tr>
+<tr>
+<td><strong>S2 — Identidad y perfiles</strong></td>
+<td>6–9</td>
+<td>Registro, verificación por correo, sesiones, RBAC por rol y por recurso, postulación de fotógrafo, aprobación admin, portafolio, búsqueda y filtros</td>
+<td>Un fotógrafo se postula, el admin lo aprueba y aparece en búsqueda; uno no aprobado no aparece (<strong>H2</strong>)</td>
+</tr>
+<tr>
+<td><strong>S3 — Solicitud, agenda y contrato</strong></td>
+<td>10–13</td>
+<td>Disponibilidad, solicitud, propuesta y ajuste, orden, contrato versionado, aceptación con evidencia (nombre, fecha/hora, IP, versión)</td>
+<td>Cliente solicita → fotógrafo propone → cliente acepta → orden creada con contrato congelado y descargable</td>
+</tr>
+<tr>
+<td><strong>S4 — Servidor de correo</strong></td>
+<td>14–16</td>
+<td><code>docker-mailserver</code> local, DKIM, Rspamd, buzones, cola con estrangulamiento, plantillas, rebotes, lista de supresión</td>
+<td>Correo firmado con DKIM verificable localmente; un rebote simulado agrega la dirección a supresión</td>
+</tr>
+<tr>
+<td><strong>S5 — Wompi: recaudo</strong></td>
+<td>17–19</td>
+<td>Checkout Web, firma de integridad, webhook con validación de checksum e idempotencia, estados de pago, panel financiero</td>
+<td>Sandbox procesa aprobado, rechazado y pendiente; la orden se confirma solo por webhook, nunca por la URL de retorno (<strong>H3</strong>)</td>
+</tr>
+<tr>
+<td><strong>S6 — Galerías y entrega</strong></td>
+<td>20–23</td>
+<td>MinIO con subida directa firmada, miniaturas en worker, permisos por recurso, selección con límite de paquete, comentarios, entrega, descargas firmadas</td>
+<td>El cliente selecciona y descarga; un enlace vencido o ajeno devuelve 403 (<strong>H4</strong>)</td>
+</tr>
+<tr>
+<td><strong>S7 — Wompi: dispersión</strong></td>
+<td>24–27</td>
+<td>Libro contable, comisión, ventana de retención, KYC bancario, corridas de pago, lotes, idempotencia, reintentos, conciliación, panel admin</td>
+<td>Un pago aprobado genera saldo; la corrida dispersa vía sandbox; el fallo de un ítem no tumba el lote y se reintenta</td>
+</tr>
+<tr>
+<td><strong>S8 — QA y endurecimiento</strong></td>
+<td>28–29</td>
+<td>E2E de los tres roles, revisión de seguridad, límites de tasa, carga controlada, documentación, manual de operación</td>
+<td>Suite E2E verde, checklist de seguridad cerrado, manual entregado</td>
+</tr>
+<tr>
+<td><strong>S9 — Infra Hostinger</strong></td>
+<td>30</td>
+<td>Provisión, endurecimiento, Docker, Caddy con TLS, CI/CD, backups, monitoreo</td>
+<td>Staging desplegado por HTTPS; <strong>restauración de backup probada</strong>, no solo configurada</td>
+</tr>
+<tr>
+<td><strong>S10 — DNS y correo en producción</strong></td>
+<td>31</td>
+<td>Registros en hPanel, PTR, cutover de MX, SPF/DKIM/DMARC, calentamiento de IP</td>
+<td>10/10 en mail-tester, DMARC recibiendo reportes, correos llegando a Gmail y Outlook</td>
+</tr>
+<tr>
+<td><strong>S11 — Producción y piloto</strong></td>
+<td>32</td>
+<td>Wompi producción, datos reales de 3 fotógrafos, piloto acompañado</td>
+<td>Piloto de punta a punta con dinero real y <strong>una dispersión efectiva</strong> (<strong>H5</strong>)</td>
+</tr>
+<tr>
+<td><strong>S12 — Estabilización</strong></td>
+<td>33</td>
+<td>Defectos del piloto, ajuste de límites, capacitación (2 h), entrega</td>
+<td>Acta de aceptación firmada; arrancan los 30 días de garantía</td>
+</tr>
+</tbody></table></div>
+<h3>4.3 Hitos de aprobación</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Hito</th>
+<th>Semana</th>
+<th>Criterio</th>
+<th>Pago asociado</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>H1</strong></td>
+<td>5</td>
+<td>Alcance, reglas, flujos y diseño aprobados</td>
+<td>30 % al kickoff</td>
+</tr>
+<tr>
+<td><strong>H2</strong></td>
+<td>9</td>
+<td>Perfiles, búsqueda y solicitud demostrables</td>
+<td>25 %</td>
+</tr>
+<tr>
+<td><strong>H3</strong></td>
+<td>19</td>
+<td>Reserva, contrato y Wompi sandbox demostrables</td>
+<td>25 %</td>
+</tr>
+<tr>
+<td><strong>H4</strong></td>
+<td>23</td>
+<td>Galerías y selección completas</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>H5</strong></td>
+<td>32</td>
+<td>Piloto aceptado con dispersión real ejecutada</td>
+<td>20 %</td>
+</tr>
+</tbody></table></div>
+<blockquote>
+<p>El esquema de pagos por hitos de la cotización se mantiene; solo se corren las semanas de H3 y H5.
+<strong>El alcance adicional (correo propio + dispersión) no está cubierto por los COP $7.000.000.</strong>
+Debe cotizarse aparte o intercambiarse por alcance equivalente, según la cláusula 14 de gestión de
+cambios de la propuesta.</p>
+</blockquote>
+<hr>
+<h2>5. Alcance funcional</h2>
+<p>Se conserva íntegro el alcance de las secciones 3 y 4 de la cotización. Resumen:</p>
+<p><strong>Cliente</strong> — cuenta y acceso · descubrimiento con filtros por especialidad, zona y presupuesto ·
+solicitud y agenda · cotización y reserva · contrato con evidencia de aceptación · pago · proyecto y
+galería privada con selección y comentarios · entrega y descarga · historial.</p>
+<p><strong>Fotógrafo</strong> — postulación y perfil · agenda y bloqueo de fechas · leads y tablero por estado ·
+galerías con carga directa · revisión de selección · <strong>pagos y saldos, ahora con dispersión
+automática</strong> (antes solo saldo interno) · notificaciones.</p>
+<p><strong>Administración</strong> — dashboard · aprobación y suspensión de usuarios · gestión de especialidades,
+zonas, servicios y comisión · consulta de órdenes y eventos Wompi · <strong>libro de saldos y corridas de
+dispersión</strong> (antes liquidación manual) · control de galerías · auditoría · configuración de correos.</p>
+<p><strong>Exclusiones</strong> — se mantienen todas las de la sección 12 de la cotización, <strong>salvo</strong>
+«split / dispersión automática», que pasa a estar incluida.</p>
+<hr>
+<h2>6. Riesgos</h2>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Riesgo</th>
+<th>Impacto</th>
+<th>Probabilidad</th>
+<th>Mitigación</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Los correos del servidor propio caen en spam</td>
+<td>Alto — todo el flujo depende del correo</td>
+<td><strong>Alta</strong></td>
+<td>SPF/DKIM/DMARC, PTR, calentamiento gradual, monitoreo DMARC, y relay externo como interruptor de emergencia (una variable de entorno)</td>
+</tr>
+<tr>
+<td>El límite de 5 correos/min de Hostinger satura la cola en picos</td>
+<td>Medio</td>
+<td>Media</td>
+<td>Cola con estrangulamiento y prioridades: transaccional crítico primero, avisos después</td>
+</tr>
+<tr>
+<td>La activación de Pagos a Terceros se demora</td>
+<td>Alto — bloquea Fase 2</td>
+<td>Media</td>
+<td>Iniciar en semana 1; el desarrollo avanza contra sandbox</td>
+</tr>
+<tr>
+<td>Una dispersión paga de más, de menos o dos veces</td>
+<td><strong>Crítico</strong></td>
+<td>Baja</td>
+<td>Idempotencia obligatoria, libro contable con doble partida, montos en centavos enteros, aprobación admin en el MVP, conciliación diaria</td>
+</tr>
+<tr>
+<td>Un solo VPS: punto único de falla, sin escudo DDoS</td>
+<td>Alto</td>
+<td>Media</td>
+<td>Snapshots, backups externos con restauración probada, límites de tasa en Caddy, CrowdSec, plan de restauración documentado</td>
+</tr>
+<tr>
+<td>Las fotos llenan el disco del VPS</td>
+<td>Medio</td>
+<td><strong>Alta</strong></td>
+<td>Cuotas por fotógrafo y proyecto, miniaturas, retención de 90 días, alerta al 70 % — y la salida: MinIO habla S3, se apunta a Backblaze B2 sin tocar código</td>
+</tr>
+<tr>
+<td>La revisión tributaria llega tarde y bloquea la dispersión real</td>
+<td>Alto</td>
+<td>Media</td>
+<td>A4 arranca en semana 2; el piloto puede correr con dispersión en sandbox si no está lista</td>
+</tr>
+<tr>
+<td>Dependencia de una sola persona desarrollando</td>
+<td>Alto</td>
+<td>Media</td>
+<td>Repositorio del cliente, documentación viva en <code>docs/</code>, infraestructura declarada en código</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h2>7. Definición de terminado</h2>
+<p>Una historia está terminada cuando:</p>
+<ol>
+<li>Cumple su criterio de aceptación funcional.</li>
+<li>Tiene pruebas automatizadas: unitarias para reglas de negocio, integración para endpoints, E2E para flujos de rol.</li>
+<li>La autorización se verifica <strong>en el servidor y por recurso</strong> — no basta con ocultar el botón.</li>
+<li>El dinero se maneja como enteros en centavos, nunca en punto flotante.</li>
+<li>Los eventos críticos (cambio de estado, contrato, pago, publicación, dispersión) quedan en auditoría.</li>
+<li>Las variables nuevas están en <code>.env.example</code> y documentadas.</li>
+<li><code>npm run typecheck &amp;&amp; npm test</code> pasa en CI.</li>
+</ol>
+<hr>
+<h2>8. Criterios de aceptación final</h2>
+<p>Los diez de la cotización, con tres ajustes por el nuevo alcance (marcados en negrita):</p>
+<ol>
+<li>Los tres roles solo acceden a funciones y datos autorizados.</li>
+<li>Un fotógrafo aprobado publica perfil, disponibilidad y portafolio.</li>
+<li>Un cliente filtra, solicita, acepta condiciones y crea una orden.</li>
+<li><strong>Wompi sandbox procesa los escenarios principales; el webhook idempotente actualiza la orden sin depender del navegador.</strong></li>
+<li>El contrato aceptado conserva versión, identidad y fecha/hora, y se puede descargar.</li>
+<li>El fotógrafo sube una galería privada, el cliente selecciona y el fotógrafo publica la entrega final.</li>
+<li>Los enlaces vencidos o ajenos no permiten descargar fotos.</li>
+<li><strong>Administración ve órdenes y pagos, configura la comisión y ejecuta una corrida de dispersión que llega a la cuenta del fotógrafo con trazabilidad completa.</strong></li>
+<li><strong>Los correos transaccionales llegan a bandeja de entrada en Gmail y Outlook, firmados con DKIM y con SPF y DMARC alineados.</strong></li>
+<li>Funciona en versiones actuales de Chrome, Safari, Firefox y Edge, con experiencia responsiva.</li>
+<li>Documentación entregada y piloto completado sin defectos bloqueantes abiertos.</li>
+</ol>
+</article>
+  </main>
+</div>
+</body>
+</html>
