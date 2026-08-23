@@ -3,6 +3,9 @@ import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import fastifyStatic from '@fastify/static';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import { env, assertWompiEnvironmentCoherence } from './env.js';
 import { prisma } from './db.js';
@@ -30,10 +33,11 @@ async function main(): Promise<void> {
   assertWompiEnvironmentCoherence();
 
   await app.register(helmet, { contentSecurityPolicy: false });
-  await app.register(cors, {
-    origin: [env.WEB_URL],
-    credentials: true,
-  });
+  // Con SERVE_WEB no hay petición de origen cruzado, así que CORS sobra.
+  // Solo se habilita cuando el frontend vive en otro dominio.
+  if (!env.SERVE_WEB) {
+    await app.register(cors, { origin: [env.WEB_URL], credentials: true });
+  }
   await app.register(cookie, { secret: env.COOKIE_SECRET });
   await app.register(rateLimit, {
     global: true,
@@ -45,7 +49,7 @@ async function main(): Promise<void> {
   await app.register(authPlugin);
 
   // ─── Salud ────────────────────────────────────────────────
-  app.get('/health', async (_req, reply) => {
+  app.get('/health', { config: { rateLimit: false } }, async (_req, reply) => {
     try {
       await prisma.$queryRaw`SELECT 1`;
       return reply.send({ status: 'ok', service: 'eterclack-api', db: 'ok' });
@@ -63,8 +67,51 @@ async function main(): Promise<void> {
   await app.register(orderRoutes, { prefix: '/api/orders' });
   await app.register(adminRoutes, { prefix: '/api/admin' });
 
+  // ─── Frontend ─────────────────────────────────────────────
+  // Servir la SPA desde la misma API mantiene un único origen: la cookie de
+  // sesión sigue siendo SameSite=Lax y no hace falta CORS.
+  // Se ancla al directorio de trabajo (apps/api), no al del módulo: en
+  // desarrollo el código vive en src/ y compilado en dist/src/, así que
+  // una ruta relativa al módulo apunta a sitios distintos en cada caso.
+  const webDist = resolve(process.cwd(), env.WEB_DIST_PATH);
+  const sirviendoWeb = env.SERVE_WEB && existsSync(webDist);
+
+  if (env.SERVE_WEB && !sirviendoWeb) {
+    app.log.warn(`SERVE_WEB activo pero no existe ${webDist}. Se sirve solo la API.`);
+  }
+
+  if (sirviendoWeb) {
+    await app.register(fastifyStatic, {
+      root: webDist,
+      prefix: '/',
+      // El Cache-Control propio del plugin pisaría el de setHeaders.
+      cacheControl: false,
+      // Los assets llevan hash en el nombre: son inmutables.
+      setHeaders(res, path) {
+        if (path.includes('/assets/')) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        } else if (path.endsWith('sw.js') || path.endsWith('index.html')) {
+          // El service worker y el HTML nunca se cachean: si no, la app
+          // queda congelada en una versión vieja tras un despliegue.
+          res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+        } else {
+          res.setHeader('Cache-Control', 'public, max-age=3600');
+        }
+      },
+    });
+    app.log.info(`Sirviendo el frontend desde ${webDist}`);
+  }
+
   app.setNotFoundHandler((req, reply) => {
-    reply.code(404).send({ error: 'ruta_no_encontrada', path: req.url });
+    // Las rutas de API que no existen son 404 de verdad.
+    if (req.url.startsWith('/api/') || req.url === '/health') {
+      return reply.code(404).send({ error: 'ruta_no_encontrada', path: req.url });
+    }
+    // Cualquier otra ruta la resuelve el enrutador del cliente.
+    if (sirviendoWeb) {
+      return reply.type('text/html').sendFile('index.html');
+    }
+    return reply.code(404).send({ error: 'ruta_no_encontrada', path: req.url });
   });
 
   app.setErrorHandler((error: FastifyError, req, reply) => {

@@ -17,7 +17,9 @@ const schema = z.object({
   API_URL: z.string().url().default('http://localhost:3000'),
 
   DATABASE_URL: z.string().min(1),
-  REDIS_URL: z.string().min(1),
+  // Declarado para cuando entren las colas (miniaturas, correo, dispersión).
+  // Hoy nada se conecta, así que no obliga a levantar el servicio.
+  REDIS_URL: z.string().default(''),
 
   JWT_ACCESS_SECRET: z.string().min(16),
   JWT_REFRESH_SECRET: z.string().min(16),
@@ -25,15 +27,26 @@ const schema = z.object({
   JWT_REFRESH_TTL: z.string().default('30d'),
   COOKIE_SECRET: z.string().min(16),
 
-  S3_ENDPOINT: z.string().url(),
-  S3_PUBLIC_ENDPOINT: z.string().url(),
+  /**
+   * Almacenamiento de objetos. Sin configurar, la aplicación arranca igual
+   * y los perfiles se ven sin portafolio: es preferible a negarse a levantar
+   * por una pieza que no bloquea el flujo de reserva.
+   */
+  S3_ENDPOINT: z.string().default('http://minio:9000'),
+  S3_PUBLIC_ENDPOINT: z.string().default('http://localhost:9000'),
   S3_REGION: z.string().default('us-east-1'),
-  S3_ACCESS_KEY: z.string().min(1),
-  S3_SECRET_KEY: z.string().min(1),
+  S3_ACCESS_KEY: z.string().default(''),
+  S3_SECRET_KEY: z.string().default(''),
   S3_FORCE_PATH_STYLE: boolFromEnv(true),
   S3_BUCKET_PHOTOS: z.string().default('eterclack-photos'),
   S3_BUCKET_CONTRACTS: z.string().default('eterclack-contracts'),
   S3_BUCKET_PUBLIC: z.string().default('eterclack-public'),
+  /**
+   * URL base de los archivos públicos. MinIO sirve en
+   * {endpoint}/{bucket}/{clave}; R2 y B2 usan un dominio propio por bucket.
+   * Si se define, gana sobre la forma de MinIO.
+   */
+  S3_PUBLIC_BASE_URL: z.string().default(''),
   S3_UPLOAD_URL_TTL: intFromEnv(300),
   S3_DOWNLOAD_URL_TTL: intFromEnv(900),
 
@@ -60,6 +73,17 @@ const schema = z.object({
   WOMPI_PAYOUTS_ACCOUNT_ID: z.string().default(''),
   PAYOUTS_ENABLED: boolFromEnv(false),
   PAYOUTS_REQUIRE_ADMIN_APPROVAL: boolFromEnv(true),
+
+  /**
+   * Sirve el frontend compilado desde la misma API.
+   *
+   * En Render es obligatorio: `onrender.com` está en la Public Suffix List,
+   * así que dos subdominios son sitios DISTINTOS y una cookie SameSite=Lax
+   * no viajaría entre ellos. Un solo origen evita el problema de raíz, sin
+   * tener que debilitar la cookie a SameSite=None.
+   */
+  SERVE_WEB: boolFromEnv(false),
+  WEB_DIST_PATH: z.string().default('../web/dist'),
 
   PLATFORM_COMMISSION_BPS: intFromEnv(1500),
   PAYOUT_HOLD_DAYS: intFromEnv(5),

@@ -1,0 +1,144 @@
+# ════════════════════════════════════════════════════════════════
+#  EterClack en Render — despliegue TEMPORAL
+#
+#  El destino definitivo es un VPS de Hostinger (ver docs/06 y docs/08).
+#  Esto es para tener una URL pública mientras tanto.
+#
+#  Un solo servicio web sirve la API y el frontend. No es un atajo:
+#  `onrender.com` está en la Public Suffix List, así que dos subdominios
+#  serían sitios DISTINTOS y la cookie de sesión SameSite=Lax no viajaría
+#  entre ellos. Un único origen lo resuelve sin debilitar la cookie.
+#
+#  Lo que NO se puede hacer aquí y sí en Hostinger:
+#    · Servidor de correo propio — Render no da el puerto 25 saliente.
+#      Se usa un relay externo (MAIL_TRANSPORT=relay).
+#    · Almacenamiento de fotos en disco — el plan gratuito no tiene disco.
+#      Se usa un bucket S3 externo, o la app corre sin portafolios.
+# ════════════════════════════════════════════════════════════════
+
+databases:
+  - name: eterclack-db
+    databaseName: eterclack
+    user: eterclack
+    plan: free # ⚠ expira a los 30 días. Para algo estable: basic-256mb
+    region: oregon
+
+services:
+  - type: web
+    name: eterclack
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: oregon # `virginia` da menos latencia desde Colombia
+    plan: free # se duerme a los 15 min; el arranque tarda 30–60 s
+    healthCheckPath: /health
+    autoDeploy: true
+
+    envVars:
+      # ── Base de datos ───────────────────────────────────────
+      - key: DATABASE_URL
+        fromDatabase:
+          name: eterclack-db
+          property: connectionString
+
+      # ── Aplicación ──────────────────────────────────────────
+      - key: NODE_ENV
+        value: production
+      - key: SERVE_WEB
+        value: 'true'
+      # Render inyecta PORT; la API ya lo respeta.
+      - key: APP_NAME
+        value: EterClack
+
+      # WEB_URL y API_URL apuntan a la URL que Render asigna.
+      # Se completan en el panel tras el primer despliegue: hasta entonces
+      # no se conoce el dominio.
+      - key: WEB_URL
+        sync: false
+      - key: API_URL
+        sync: false
+
+      # ── Secretos de sesión ──────────────────────────────────
+      # Render los genera; nunca se escriben aquí.
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: COOKIE_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_TTL
+        value: 15m
+      - key: JWT_REFRESH_TTL
+        value: 30d
+
+      # ── Almacenamiento de fotos (S3 compatible) ─────────────
+      # Sin esto la plataforma funciona igual: los perfiles se ven sin
+      # portafolio. Para que haya fotos, crear un bucket en Cloudflare R2
+      # o Backblaze B2 (ambos con 10 GB gratis) y llenar estos valores.
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_PUBLIC_BASE_URL
+        sync: false
+      - key: S3_ACCESS_KEY
+        sync: false
+      - key: S3_SECRET_KEY
+        sync: false
+      - key: S3_REGION
+        value: auto
+      - key: S3_FORCE_PATH_STYLE
+        value: 'false' # R2 y B2 usan host-style; MinIO exige path-style
+      - key: S3_BUCKET_PHOTOS
+        value: eterclack-photos
+      - key: S3_BUCKET_CONTRACTS
+        value: eterclack-contracts
+      - key: S3_BUCKET_PUBLIC
+        value: eterclack-public
+
+      # ── Correo ──────────────────────────────────────────────
+      # Render no abre el puerto 25: el servidor propio no es posible aquí.
+      # Relay externo (Brevo, Resend, SendGrid…) con credenciales SMTP.
+      - key: MAIL_TRANSPORT
+        value: relay
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: '587'
+      - key: SMTP_SECURE
+        value: 'false'
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: MAIL_FROM_NAME
+        value: EterClack
+      - key: MAIL_FROM_ADDRESS
+        sync: false
+      - key: MAIL_REPLY_TO
+        sync: false
+      - key: MAIL_RATE_PER_MINUTE
+        value: '10' # el límite de 5/min es de Hostinger, no de Render
+
+      # ── Wompi ───────────────────────────────────────────────
+      # Sandbox mientras esto sea temporal. La guarda de arranque rechaza
+      # mezclar una URL de producción con llaves de prueba.
+      - key: WOMPI_BASE_URL
+        value: https://sandbox.wompi.co/v1
+      - key: WOMPI_PUBLIC_KEY
+        sync: false
+      - key: WOMPI_PRIVATE_KEY
+        sync: false
+      - key: WOMPI_INTEGRITY_SECRET
+        sync: false
+      - key: WOMPI_EVENTS_SECRET
+        sync: false
+      - key: PAYOUTS_ENABLED
+        value: 'false'
+      - key: PAYOUTS_REQUIRE_ADMIN_APPROVAL
+        value: 'true'
+
+      # ── Reglas de negocio ───────────────────────────────────
+      - key: PLATFORM_COMMISSION_BPS
+        value: '1500' # 15,00 % en puntos base
+      - key: PAYOUT_HOLD_DAYS
+        value: '5'
+      - key: PAYOUT_MIN_AMOUNT_CENTS
+        value: '5000000' # COP $50.000

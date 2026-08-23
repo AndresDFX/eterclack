@@ -28,6 +28,7 @@ const TITULOS = {
   '06-despliegue-hostinger': ['Despliegue Hostinger', 'Provisión, DNS, cutover, operación'],
   '07-plan-de-pruebas': ['Plan de pruebas', 'Qué se prueba, cómo y con qué criterio'],
   '08-plan-de-despliegue': ['Plan de despliegue', 'De local a producción, con reversa definida'],
+  '09-despliegue-render': ['Despliegue en Render', 'Puente temporal con URL pública, paso a paso'],
 };
 
 const docs = readdirSync(DOCS)

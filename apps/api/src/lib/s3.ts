@@ -76,8 +76,16 @@ export async function deleteObject(bucket: UploadTarget, key: string): Promise<v
   await s3.send(new DeleteObjectCommand({ Bucket: BUCKETS[bucket], Key: key }));
 }
 
-/** URL directa para el bucket público (avatares, portafolios, miniaturas). */
+/**
+ * URL directa para el bucket público (avatares, portafolios, miniaturas).
+ *
+ * MinIO expone {endpoint}/{bucket}/{clave}. R2 y B2 dan un dominio por bucket,
+ * donde la clave cuelga de la raíz: para eso está S3_PUBLIC_BASE_URL.
+ */
 export function publicUrl(key: string | null | undefined): string | null {
   if (!key) return null;
+  if (env.S3_PUBLIC_BASE_URL) {
+    return `${env.S3_PUBLIC_BASE_URL.replace(/\/$/, '')}/${key}`;
+  }
   return `${env.S3_PUBLIC_ENDPOINT}/${BUCKETS.public}/${key}`;
 }

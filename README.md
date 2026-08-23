@@ -159,6 +159,10 @@ la marca es geométrica, sin radios grandes. Todo vive en
 | [04 — Wompi](docs/04-wompi.md) | Recaudo y dispersión a fotógrafos |
 | [05 — Modelo de datos](docs/05-modelo-datos.md) | Entidades, estados, libro contable |
 | [06 — Despliegue Hostinger](docs/06-despliegue-hostinger.md) | Provisión, DNS, cutover, operación |
+| [07 — Plan de pruebas](docs/07-plan-de-pruebas.md) | Qué se prueba, cómo y con qué criterio |
+| [08 — Plan de despliegue](docs/08-plan-de-despliegue.md) | De local a producción, con reversa definida |
+| [09 — Despliegue en Render](docs/09-despliegue-render.md) | Puente temporal con URL pública, paso a paso |
+| [Plan de pruebas funcionales (.docx)](docs/EterClack%20-%20Plan%20de%20pruebas%20funcionales.docx) | 62 casos con credenciales, para probar a mano |
 
 ### Cambios frente a la cotización original
 

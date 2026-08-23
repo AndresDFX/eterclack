@@ -25,7 +25,11 @@ async function download(seed: string, w: number, h: number): Promise<Buffer | nu
   }
 }
 
+let almacenamientoCaido = false;
+
 async function upload(key: string, body: Buffer): Promise<void> {
+  if (almacenamientoCaido) throw new Error('almacenamiento no disponible');
+
   await s3.send(
     new PutObjectCommand({
       Bucket: BUCKETS.public,
@@ -49,6 +53,7 @@ export async function seedPortfolio(
   count: number,
 ): Promise<SeededImage[]> {
   const out: SeededImage[] = [];
+  if (almacenamientoCaido) return out;
 
   for (let i = 0; i < count; i++) {
     const seed = `${photographerSlug}-${i}`;
@@ -62,8 +67,14 @@ export async function seedPortfolio(
     const imageKey = `portfolio/${photographerSlug}/${i}.jpg`;
     const thumbKey = `portfolio/${photographerSlug}/${i}-thumb.jpg`;
 
-    await Promise.all([upload(imageKey, full), upload(thumbKey, thumb)]);
-    out.push({ imageKey, thumbKey });
+    try {
+      await Promise.all([upload(imageKey, full), upload(thumbKey, thumb)]);
+      out.push({ imageKey, thumbKey });
+    } catch {
+      // Sin bucket configurado la plataforma funciona igual, solo sin fotos.
+      almacenamientoCaido = true;
+      return out;
+    }
   }
 
   return out;
@@ -81,13 +92,18 @@ export async function seedProfileImages(
   let avatarKey: string | null = null;
   let coverKey: string | null = null;
 
-  if (avatar) {
-    avatarKey = `profiles/${photographerSlug}/avatar.jpg`;
-    await upload(avatarKey, avatar);
-  }
-  if (cover) {
-    coverKey = `profiles/${photographerSlug}/cover.jpg`;
-    await upload(coverKey, cover);
+  try {
+    if (avatar) {
+      avatarKey = `profiles/${photographerSlug}/avatar.jpg`;
+      await upload(avatarKey, avatar);
+    }
+    if (cover) {
+      coverKey = `profiles/${photographerSlug}/cover.jpg`;
+      await upload(coverKey, cover);
+    }
+  } catch {
+    almacenamientoCaido = true;
+    return { avatarKey: null, coverKey: null };
   }
 
   return { avatarKey, coverKey };
