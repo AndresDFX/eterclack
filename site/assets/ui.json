@@ -1,0 +1,72 @@
+{
+  "01-inicio": {
+    "src": "assets/ui/01-inicio.jpg",
+    "w": 1200,
+    "h": 2118
+  },
+  "02-buscar": {
+    "src": "assets/ui/02-buscar.jpg",
+    "w": 1200,
+    "h": 1324
+  },
+  "03-perfil": {
+    "src": "assets/ui/03-perfil.jpg",
+    "w": 1200,
+    "h": 1941
+  },
+  "04-como-funciona": {
+    "src": "assets/ui/04-como-funciona.jpg",
+    "w": 1200,
+    "h": 1853
+  },
+  "05-ingresar": {
+    "src": "assets/ui/05-ingresar.jpg",
+    "w": 1200,
+    "h": 882
+  },
+  "06-registro": {
+    "src": "assets/ui/06-registro.jpg",
+    "w": 1200,
+    "h": 1147
+  },
+  "07-reservar": {
+    "src": "assets/ui/07-reservar.jpg",
+    "w": 1200,
+    "h": 2029
+  },
+  "08-mis-citas": {
+    "src": "assets/ui/08-mis-citas.jpg",
+    "w": 1200,
+    "h": 1059
+  },
+  "10-panel-perfil": {
+    "src": "assets/ui/10-panel-perfil.jpg",
+    "w": 1200,
+    "h": 1765
+  },
+  "11-panel-citas": {
+    "src": "assets/ui/11-panel-citas.jpg",
+    "w": 1200,
+    "h": 971
+  },
+  "12-panel-calendario": {
+    "src": "assets/ui/12-panel-calendario.jpg",
+    "w": 1200,
+    "h": 1147
+  },
+  "13-admin": {
+    "src": "assets/ui/13-admin.jpg",
+    "w": 1200,
+    "h": 1588
+  },
+  "20-movil-inicio": {
+    "src": "assets/ui/20-movil-inicio.jpg",
+    "w": 430,
+    "h": 931
+  },
+  "21-movil-reservar": {
+    "src": "assets/ui/21-movil-reservar.jpg",
+    "w": 430,
+    "h": 931
+  }
+}

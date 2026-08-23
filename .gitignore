@@ -31,3 +31,8 @@ base/*.pdf
 # Sistema
 .DS_Store
 Thumbs.db
+
+# Flujos de GitHub Actions: el token actual no tiene el permiso `workflow`.
+# Para habilitarlos:  gh auth refresh -s workflow
+# y luego quitar esta línea y hacer commit de .github/workflows/
+.github/workflows/
