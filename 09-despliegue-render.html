@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1D1D1B">
+<title>Despliegue en Render · EterClack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="saltar" href="#contenido">Saltar al contenido</a>
+
+<div class="marco">
+  <aside class="lateral">
+    <a class="marca" href="index.html" aria-label="EterClack, inicio">
+      <span class="marca-tipo">eter<br>clack</span>
+      <span class="marca-esq"><i class="esq tr"></i><i class="esq br"></i></span>
+    </a>
+    <nav>
+      <a href="index.html">Inicio</a>
+      <a href="interfaz.html">La interfaz</a>
+      <a href="00-plan-implementacion.html">Plan de implementación</a>
+      <a href="01-arquitectura.html">Arquitectura</a>
+      <a href="02-entorno-local.html">Entorno local</a>
+      <a href="03-servidor-correo.html">Servidor de correo</a>
+      <a href="04-wompi.html">Wompi</a>
+      <a href="05-modelo-datos.html">Modelo de datos</a>
+      <a href="06-despliegue-hostinger.html">Despliegue Hostinger</a>
+      <a href="07-plan-de-pruebas.html">Plan de pruebas</a>
+      <a href="08-plan-de-despliegue.html">Plan de despliegue</a>
+      <a href="09-despliegue-render.html" aria-current="page">Despliegue en Render</a>
+    </nav>
+    <p class="lateral-pie">ETERnidad<br>a un solo CLACK</p>
+  </aside>
+
+  <main id="contenido" class="doc">
+    <header class="cabecera">
+      <h1>Despliegue en Render</h1>
+      <p class="lede">Puente temporal con URL pública, paso a paso</p>
+    </header>
+    <article class="md"><p><strong>Render es un puente, no el destino.</strong> La versión definitiva va a un VPS de Hostinger
+(<a href="06-despliegue-hostinger.html">docs/06</a>). Esto sirve para tener una URL pública mientras tanto, con
+lo mínimo por hacer a mano.</p>
+<p>Todo lo que sigue está ya preparado en el repositorio: <code>Dockerfile</code>, <code>render.yaml</code> y el código que
+sirve API y frontend desde un solo origen. <strong>Tus pasos manuales están en §3.</strong></p>
+<hr>
+<h2>1. Cómo queda montado</h2>
+<pre><code>                     Internet
+                        │
+              ┌─────────┴──────────┐
+              │  eterclack.onrender.com  │  ← un solo origen
+              └─────────┬──────────┘
+                        │
+        ┌───────────────┴────────────────┐
+        │  Servicio web (Docker, gratis) │
+        │                                │
+        │   Fastify                      │
+        │    ├─ /api/*   → la API        │
+        │    ├─ /health  → salud         │
+        │    └─ /*       → la SPA        │
+        └───────────────┬────────────────┘
+                        │
+        ┌───────────────┴────────────────┐
+        │  PostgreSQL gestionado (gratis)│
+        └────────────────────────────────┘
+
+        Externos, opcionales:
+        · Bucket S3 (R2 o B2) para las fotos
+        · Relay SMTP para los correos
+</code></pre>
+<h3>1.1 Por qué un solo servicio y no dos</h3>
+<p><code>onrender.com</code> está en la <strong>Public Suffix List</strong>. Eso significa que <code>api.onrender.com</code> y
+<code>web.onrender.com</code> son <strong>sitios distintos</strong> para el navegador, no dos subdominios del mismo sitio.
+Una cookie <code>SameSite=Lax</code> —la que usa la sesión— <strong>no viajaría entre ellos</strong>.</p>
+<p>El síntoma sería desconcertante: el login responde 200, y la siguiente petición devuelve 401.</p>
+<p>Las salidas eran dos: bajar la cookie a <code>SameSite=None</code> (más superficie de CSRF) o servir todo
+desde un origen. Se eligió lo segundo: la cookie sigue siendo <code>Lax</code>, desaparece el CORS, y de paso
+es un servicio en lugar de dos.</p>
+<h3>1.2 Lo que Render no puede dar</h3>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Pieza</th>
+<th>Situación en Render</th>
+<th>Qué se hace</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Servidor de correo propio</strong></td>
+<td>Imposible: no hay puerto 25 saliente</td>
+<td><code>MAIL_TRANSPORT=relay</code> con un proveedor externo</td>
+</tr>
+<tr>
+<td><strong>Disco para las fotos</strong></td>
+<td>El plan gratuito no tiene disco</td>
+<td>Bucket S3 externo, o la app corre sin portafolios</td>
+</tr>
+<tr>
+<td><strong>Base de datos permanente</strong></td>
+<td>La gratuita <strong>expira a los 30 días</strong></td>
+<td>Renovar, o pasar al plan de pago</td>
+</tr>
+<tr>
+<td><strong>Servicio siempre despierto</strong></td>
+<td>Se duerme a los 15 min de inactividad</td>
+<td>La primera visita tarda 30–60 s. Aceptable para una demo</td>
+</tr>
+</tbody></table></div>
+<p>Ninguna de las cuatro es un problema en Hostinger. Por eso Render es temporal.</p>
+<hr>
+<h2>2. Lo que ya está hecho</h2>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Archivo</th>
+<th>Qué hace</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Dockerfile</code></td>
+<td>Compila web y API en una imagen. Usuario sin privilegios. Aplica migraciones al arrancar</td>
+</tr>
+<tr>
+<td><code>render.yaml</code></td>
+<td>Define el servicio y la base de datos. Genera los secretos de sesión solo</td>
+</tr>
+<tr>
+<td><code>apps/api/src/server.ts</code></td>
+<td>Sirve la SPA, con reserva para las rutas del cliente y caché correcta</td>
+</tr>
+<tr>
+<td><code>apps/api/src/env.ts</code></td>
+<td>S3 y Redis son opcionales: sin bucket la app arranca igual, solo sin fotos</td>
+</tr>
+</tbody></table></div>
+<p><strong>Verificado antes de entregarlo:</strong> la imagen se construyó y se ejecutó contra la base real. Se
+comprobaron el health check, la SPA, las rutas del cliente, el 404 de API en JSON, las cabeceras de
+caché, la sesión con cookie y una reserva completa de punta a punta.</p>
+<hr>
+<h2>3. Tus pasos manuales</h2>
+<h3>Paso 1 · Conectar el repositorio a Render <em>(5 min, obligatorio)</em></h3>
+<ol>
+<li>Entra a <strong><a href="https://dashboard.render.com">https://dashboard.render.com</a></strong> con tu cuenta.</li>
+<li><strong>New +</strong> → <strong>Blueprint</strong>.</li>
+<li>Conecta tu GitHub y elige <strong><code>AndresDFX/eterclack</code></strong>.</li>
+<li>Render detecta <code>render.yaml</code> y muestra el servicio <code>eterclack</code> y la base <code>eterclack-db</code>.</li>
+<li>Te pedirá los valores marcados como <code>sync: false</code>. <strong>Puedes dejarlos vacíos por ahora</strong> salvo
+los dos del paso 2 — la aplicación arranca igual.</li>
+<li><strong>Apply</strong>.</li>
+</ol>
+<p>La primera construcción tarda entre 5 y 10 minutos (compila las dos apps).</p>
+<h3>Paso 2 · Poner la URL real <em>(2 min, obligatorio)</em></h3>
+<p>Hasta que Render no despliega, no se sabe el dominio. Cuando termine:</p>
+<ol>
+<li>Copia la URL que te asignó, por ejemplo <code>https://eterclack.onrender.com</code>.</li>
+<li>Ve a <strong>Environment</strong> del servicio y pon esa misma URL en:</li>
+</ol>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Valor</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>WEB_URL</code></td>
+<td><code>https://eterclack.onrender.com</code></td>
+</tr>
+<tr>
+<td><code>API_URL</code></td>
+<td><code>https://eterclack.onrender.com</code></td>
+</tr>
+</tbody></table></div>
+<ol start="3">
+<li><strong>Save changes</strong>. Render redespliega solo.</li>
+</ol>
+<blockquote>
+<p>Las dos apuntan al mismo sitio. No es un error: es la consecuencia de servir todo desde un origen.</p>
+</blockquote>
+<h3>Paso 3 · Sembrar los datos de prueba <em>(2 min, obligatorio)</em></h3>
+<p>Sin esto la plataforma está vacía: no hay fotógrafos, ni catálogo, ni cuentas.</p>
+<ol>
+<li>En el servicio, abre la pestaña <strong>Shell</strong>.</li>
+<li>Ejecuta:</li>
+</ol>
+<pre><code class="language-bash">npx tsx prisma/seed.ts
+</code></pre>
+<p>Deja 9 usuarios, 5 fotógrafos, 8 especialidades, 12 zonas, 15 productos y ~186 franjas de agenda.
+Las credenciales están en el plan de pruebas funcionales.</p>
+<blockquote>
+<p>Si configuraste el bucket del paso 4, también sube unas 40 fotos de portafolio. Si no, corre
+igual y los perfiles se ven sin portafolio.</p>
+</blockquote>
+<h3>Paso 4 · Bucket para las fotos <em>(10 min, opcional pero recomendado)</em></h3>
+<p>Sin esto la plataforma funciona, pero un marketplace de fotografía sin fotos se ve a medio hacer.</p>
+<p><strong>Con Cloudflare R2</strong> (10 GB gratis, sin cargo por descarga):</p>
+<ol>
+<li>Panel de Cloudflare → <strong>R2</strong> → <strong>Create bucket</strong> → nómbralo <code>eterclack-public</code>.</li>
+<li>Crea otros dos: <code>eterclack-photos</code> y <code>eterclack-contracts</code>.</li>
+<li>En <code>eterclack-public</code> → <strong>Settings</strong> → <strong>Public access</strong> → habilita el dominio <code>r2.dev</code>.
+Copia esa URL, algo como <code>https://pub-xxxxx.r2.dev</code>.</li>
+<li><strong>Manage R2 API Tokens</strong> → <strong>Create API token</strong> → permiso <em>Object Read &amp; Write</em>.
+Guarda el Access Key ID, el Secret y el Account ID.</li>
+<li>En Render → <strong>Environment</strong>, llena:</li>
+</ol>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Valor</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>S3_ENDPOINT</code></td>
+<td><code>https://&lt;ACCOUNT_ID&gt;.r2.cloudflarestorage.com</code></td>
+</tr>
+<tr>
+<td><code>S3_PUBLIC_BASE_URL</code></td>
+<td><code>https://pub-xxxxx.r2.dev</code></td>
+</tr>
+<tr>
+<td><code>S3_ACCESS_KEY</code></td>
+<td>tu Access Key ID</td>
+</tr>
+<tr>
+<td><code>S3_SECRET_KEY</code></td>
+<td>tu Secret Access Key</td>
+</tr>
+</tbody></table></div>
+<ol start="6">
+<li>Guarda y vuelve a correr la semilla (paso 3) para que suba las fotos.</li>
+</ol>
+<p><strong>Con Backblaze B2</strong> es equivalente: bucket público, application key, y <code>S3_ENDPOINT</code> con la forma
+<code>https://s3.&lt;region&gt;.backblazeb2.com</code>.</p>
+<blockquote>
+<p><code>S3_FORCE_PATH_STYLE</code> ya está en <code>false</code> en el blueprint, que es lo que R2 y B2 esperan. MinIO
+en local sí necesita <code>true</code>, y por eso vive en <code>.env</code> y no aquí.</p>
+</blockquote>
+<h3>Paso 5 · Correo <em>(10 min, opcional)</em></h3>
+<p>Sin esto, los correos de verificación <strong>no se envían</strong> y no podrás verificar cuentas nuevas.
+Las cuentas de la semilla ya vienen verificadas, así que puedes probar todo el flujo de reserva
+sin correo.</p>
+<p><strong>Con Brevo</strong> (300 correos/día gratis):</p>
+<ol>
+<li>Crea cuenta en brevo.com.</li>
+<li><strong>SMTP &amp; API</strong> → <strong>SMTP</strong> → copia el servidor, el usuario y la clave.</li>
+<li>En Render:</li>
+</ol>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Valor</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SMTP_HOST</code></td>
+<td><code>smtp-relay.brevo.com</code></td>
+</tr>
+<tr>
+<td><code>SMTP_USER</code></td>
+<td>el que te dio Brevo</td>
+</tr>
+<tr>
+<td><code>SMTP_PASSWORD</code></td>
+<td>la clave SMTP</td>
+</tr>
+<tr>
+<td><code>MAIL_FROM_ADDRESS</code></td>
+<td>un correo tuyo verificado en Brevo</td>
+</tr>
+<tr>
+<td><code>MAIL_REPLY_TO</code></td>
+<td>el mismo, o el de contacto</td>
+</tr>
+</tbody></table></div>
+<p>Resend y SendGrid funcionan igual; solo cambian el host y las credenciales.</p>
+<h3>Paso 6 · Wompi en sandbox <em>(5 min, opcional)</em></h3>
+<p>Solo aplica cuando se construya la fase 6. Hoy el botón de pago está deshabilitado.</p>
+<p>Cuando llegue: <code>WOMPI_PUBLIC_KEY</code>, <code>WOMPI_PRIVATE_KEY</code>, <code>WOMPI_INTEGRITY_SECRET</code> y
+<code>WOMPI_EVENTS_SECRET</code> desde el panel de comercios, todas con prefijo de prueba.</p>
+<blockquote>
+<p>La aplicación <strong>rechaza arrancar</strong> si mezclas una URL de producción con llaves <code>pub_test_</code>.
+Es a propósito: ese error, descubierto en caliente, cuesta transacciones reales.</p>
+</blockquote>
+<hr>
+<h2>4. Comprobar que quedó bien</h2>
+<p>En este orden. Si uno falla, no sigas al siguiente.</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Comprobación</th>
+<th>Cómo</th>
+<th>Esperado</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>El servicio vive</td>
+<td><code>https://tu-app.onrender.com/health</code></td>
+<td><code>{&quot;status&quot;:&quot;ok&quot;,&quot;db&quot;:&quot;ok&quot;}</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>La web carga</td>
+<td>Abre la raíz</td>
+<td>La portada con la marca</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Hay datos</td>
+<td>Ve a «Fotógrafos»</td>
+<td>3 fotógrafos aprobados</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Las rutas del cliente funcionan</td>
+<td>Abre <code>/fotografos</code> directo, sin navegar</td>
+<td>Carga la búsqueda, no un 404</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>La sesión persiste</strong></td>
+<td>Ingresa y <strong>recarga</strong></td>
+<td>Sigues dentro</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Se puede reservar</td>
+<td>Recorre CP-25 del plan funcional</td>
+<td>Orden creada</td>
+</tr>
+<tr>
+<td>7</td>
+<td>La PWA se instala</td>
+<td>Chrome → menú → Instalar</td>
+<td>Icono con la marca</td>
+</tr>
+</tbody></table></div>
+<blockquote>
+<p>El paso 5 es el que valida todo el diseño de un solo origen. Si al recargar te saca, algo pasó
+con las cookies.</p>
+</blockquote>
+<hr>
+<h2>5. Costo</h2>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Concepto</th>
+<th>Gratis</th>
+<th>Si necesitas estabilidad</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Servicio web</td>
+<td>USD 0 · se duerme a los 15 min</td>
+<td>Starter: <strong>USD 7/mes</strong>, siempre despierto</td>
+</tr>
+<tr>
+<td>PostgreSQL</td>
+<td>USD 0 · <strong>expira a los 30 días</strong></td>
+<td>Basic: <strong>USD 6/mes</strong>, permanente</td>
+</tr>
+<tr>
+<td>Bucket R2 / B2</td>
+<td>USD 0 hasta 10 GB</td>
+<td>~USD 1,50/mes por 100 GB</td>
+</tr>
+<tr>
+<td>Correo (Brevo)</td>
+<td>USD 0 · 300/día</td>
+<td>Desde USD 9/mes</td>
+</tr>
+<tr>
+<td><strong>Total demo</strong></td>
+<td><strong>USD 0</strong></td>
+<td><strong>~USD 13/mes</strong></td>
+</tr>
+</tbody></table></div>
+<p>Para comparar: el VPS de Hostinger cuesta unos <strong>USD 15–20/mes</strong> y ahí sí caben el correo propio,
+el almacenamiento en disco y todo junto sin dormirse.</p>
+<blockquote>
+<p>⚠ <strong>Los 30 días de la base gratuita corren desde que la creas.</strong> Cuando expire, los datos se
+borran tras 14 días de gracia. Si la demo tiene que durar más, pasa la base a <code>basic-256mb</code> antes
+de que venza, o ten presente que habrá que volver a sembrar.</p>
+</blockquote>
+<hr>
+<h2>6. Cuando toque pasar a Hostinger</h2>
+<p>La mudanza es corta porque nada quedó atado a Render:</p>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>Pieza</th>
+<th>En Render</th>
+<th>En Hostinger</th>
+<th>Cambio</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Base de datos</td>
+<td>PostgreSQL gestionado</td>
+<td>PostgreSQL en Docker</td>
+<td><code>DATABASE_URL</code></td>
+</tr>
+<tr>
+<td>Fotos</td>
+<td>R2 o B2</td>
+<td>MinIO en el VPS, o el mismo bucket</td>
+<td><code>S3_ENDPOINT</code>, o nada</td>
+</tr>
+<tr>
+<td>Correo</td>
+<td>Relay externo</td>
+<td>Servidor propio</td>
+<td><code>MAIL_TRANSPORT=smtp</code></td>
+</tr>
+<tr>
+<td>Frontend</td>
+<td>Servido por la API</td>
+<td>Servido por Caddy, o igual</td>
+<td><code>SERVE_WEB</code></td>
+</tr>
+<tr>
+<td>Imagen</td>
+<td>El mismo <code>Dockerfile</code></td>
+<td>El mismo <code>Dockerfile</code></td>
+<td>Ninguno</td>
+</tr>
+</tbody></table></div>
+<p><strong>Todo son variables de entorno.</strong> No hay código que reescribir: es exactamente la razón por la que
+el almacenamiento habla S3 y el correo tiene un transporte intercambiable.</p>
+<p>Los datos se llevan con un <code>pg_dump</code> de Render y un <code>pg_restore</code> en el VPS, y las fotos con
+<code>rclone sync</code> entre buckets.</p>
+<p>El detalle de la puesta en marcha del VPS está en <a href="06-despliegue-hostinger.html">docs/06</a> y
+<a href="08-plan-de-despliegue.html">docs/08</a>.</p>
+</article>
+  </main>
+</div>
+</body>
+</html>
