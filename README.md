@@ -162,7 +162,7 @@ la marca es geométrica, sin radios grandes. Todo vive en
 | [07 — Plan de pruebas](docs/07-plan-de-pruebas.md) | Qué se prueba, cómo y con qué criterio |
 | [08 — Plan de despliegue](docs/08-plan-de-despliegue.md) | De local a producción, con reversa definida |
 | [09 — Despliegue en Render](docs/09-despliegue-render.md) | Puente temporal con URL pública, paso a paso |
-| [Plan de pruebas funcionales (.docx)](docs/EterClack%20-%20Plan%20de%20pruebas%20funcionales.docx) | 62 casos con credenciales, para probar a mano |
+| [Plan de pruebas funcionales (.docx)](docs/EterClack%20-%20Plan%20de%20pruebas%20funcionales.docx) | 62 casos con credenciales, pasos, resultado esperado y bloque para anotar observaciones |
 
 ### Cambios frente a la cotización original
 

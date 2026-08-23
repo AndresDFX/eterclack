@@ -1,8 +1,10 @@
 """
 Genera el plan de pruebas funcionales en .docx.
 
-El documento va dirigido a quien prueba a mano, no a quien programa: casos
-numerados, credenciales, pasos y resultado esperado, con espacio para marcar.
+El documento va dirigido a quien prueba a mano, no a quien programa. Cada caso
+trae pasos, resultado esperado y un bloque de registro para anotar qué pasó de
+verdad: sin ese espacio, las observaciones se pierden en un chat y no llegan a
+convertirse en correcciones.
 
     python docs/generar-plan-funcional.py
 """
@@ -10,22 +12,25 @@ numerados, credenciales, pasos y resultado esperado, con espacio para marcar.
 from docx import Document
 from docx.shared import Pt, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ROW_HEIGHT_RULE
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 # ── Marca ────────────────────────────────────────────────────────
 INK = RGBColor(0x1D, 0x1D, 0x1B)
 LIME_HEX = 'E7E226'
+BAND_HEX = 'F2F2EE'   # banda del bloque de registro
+FIELD_HEX = 'FFFFFF'  # celdas para escribir
 GREY = RGBColor(0x6A, 0x6A, 0x66)
 DANGER = RGBColor(0xB0, 0x3A, 0x2E)
 
+CAJA = '☐'
+
 doc = Document()
 
-# Márgenes y tipografía base
 for s in doc.sections:
-    s.top_margin = s.bottom_margin = Cm(2)
-    s.left_margin = s.right_margin = Cm(2)
+    s.top_margin = s.bottom_margin = Cm(1.8)
+    s.left_margin = s.right_margin = Cm(1.8)
 
 normal = doc.styles['Normal']
 normal.font.name = 'Calibri'
@@ -33,12 +38,47 @@ normal.font.size = Pt(10)
 normal.paragraph_format.space_after = Pt(6)
 
 
+# ── Utilidades ───────────────────────────────────────────────────
 def sombrear(celda, hex_color):
     tc = celda._tc.get_or_add_tcPr()
     sombra = OxmlElement('w:shd')
     sombra.set(qn('w:val'), 'clear')
     sombra.set(qn('w:fill'), hex_color)
     tc.append(sombra)
+
+
+def texto_celda(celda, texto, size=9, bold=False, color=None, italic=False):
+    celda.text = ''
+    p = celda.paragraphs[0]
+    p.paragraph_format.space_after = Pt(2)
+    r = p.add_run(texto)
+    r.font.size = Pt(size)
+    r.bold = bold
+    r.italic = italic
+    if color:
+        r.font.color.rgb = color
+    return p
+
+
+def no_partir(tabla_obj):
+    """Mantiene el bloque de un caso entero en la misma página.
+
+    Un caso partido entre dos hojas obliga a pasar página para anotar lo que
+    acabas de ver: la observación se pierde. Se marca cada fila como
+    indivisible y se encadena con la siguiente, salvo la última.
+    """
+    filas = tabla_obj.rows
+    for indice, fila in enumerate(filas):
+        tr = fila._tr.get_or_add_trPr()
+        # El esquema de OOXML exige que `cantSplit` vaya ANTES de `trHeight`.
+        # Puesto después, Word lo ignora en silencio y la fila se parte igual.
+        no_split = OxmlElement('w:cantSplit')
+        no_split.set(qn('w:val'), 'true')
+        tr.insert(0, no_split)
+        if indice < len(filas) - 1:
+            for celda in fila.cells:
+                for par in celda.paragraphs:
+                    par.paragraph_format.keep_with_next = True
 
 
 def titulo(texto, nivel=1):
@@ -69,23 +109,17 @@ def nota(texto):
     return p
 
 
-def tabla(cabeceras, filas, anchos=None):
+def tabla(cabeceras, filas, anchos=None, size=9):
     t = doc.add_table(rows=1, cols=len(cabeceras))
     t.style = 'Table Grid'
     t.alignment = WD_TABLE_ALIGNMENT.LEFT
-    hdr = t.rows[0].cells
     for i, h in enumerate(cabeceras):
-        hdr[i].text = ''
-        run = hdr[i].paragraphs[0].add_run(h)
-        run.bold = True
-        run.font.size = Pt(9)
-        sombrear(hdr[i], LIME_HEX)
+        texto_celda(t.rows[0].cells[i], h, size=size, bold=True)
+        sombrear(t.rows[0].cells[i], LIME_HEX)
     for fila in filas:
         celdas = t.add_row().cells
         for i, v in enumerate(fila):
-            celdas[i].text = ''
-            run = celdas[i].paragraphs[0].add_run(str(v))
-            run.font.size = Pt(9)
+            texto_celda(celdas[i], str(v), size=size)
     if anchos:
         for fila in t.rows:
             for i, w in enumerate(anchos):
@@ -98,7 +132,6 @@ def tabla(cabeceras, filas, anchos=None):
 #  Portada
 # ════════════════════════════════════════════════════════════════
 p = doc.add_paragraph()
-p.alignment = WD_ALIGN_PARAGRAPH.LEFT
 r = p.add_run('ETERCLACK')
 r.bold = True
 r.font.size = Pt(26)
@@ -112,39 +145,109 @@ r.font.color.rgb = GREY
 doc.add_paragraph()
 titulo('Plan de pruebas funcionales', 0)
 parrafo(
-    'Guion para probar la plataforma a mano. Cada caso indica quién lo ejecuta, qué hace y qué '
-    'debe pasar. Los casos marcados como NEGATIVOS deben FALLAR: si pasan, hay un defecto.',
+    'Guion para probar la plataforma a mano. Cada caso indica quién lo ejecuta, qué hace, qué '
+    'debe pasar, y deja espacio para anotar qué pasó de verdad. Los casos marcados como '
+    'NEGATIVOS deben FALLAR: si pasan, hay un defecto.',
     gris=True,
 )
+
+parrafo('Datos de la sesión de pruebas', negrita=True)
+parrafo('Llena esto antes de empezar. Sin el contexto, una observación no se puede reproducir.',
+        gris=True, size=9)
+
+t = doc.add_table(rows=0, cols=4)
+t.style = 'Table Grid'
+for etiqueta_a, etiqueta_b in [
+    ('Quién prueba', 'Fecha'),
+    ('Entorno (local / Render)', 'URL usada'),
+    ('Navegador y versión', 'Dispositivo'),
+    ('Versión probada (commit)', 'Duración'),
+]:
+    fila = t.add_row()
+    fila.height = Cm(0.85)
+    fila.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+    texto_celda(fila.cells[0], etiqueta_a, bold=True)
+    sombrear(fila.cells[0], BAND_HEX)
+    texto_celda(fila.cells[1], '')
+    texto_celda(fila.cells[2], etiqueta_b, bold=True)
+    sombrear(fila.cells[2], BAND_HEX)
+    texto_celda(fila.cells[3], '')
+    fila.cells[0].width = Cm(4.4)
+    fila.cells[1].width = Cm(4.6)
+    fila.cells[2].width = Cm(4)
+    fila.cells[3].width = Cm(4.4)
+doc.add_paragraph()
 
 tabla(
     ['Campo', 'Valor'],
     [
-        ['Versión', 'Fases 0 a 4 (identidad, descubrimiento, calendario, reserva, contrato, PWA)'],
-        ['Entorno', 'Local en Docker · o el despliegue temporal en Render'],
+        ['Alcance', 'Fases 0 a 4: identidad, descubrimiento, calendario, reserva, contrato, PWA'],
         ['Fuera de alcance', 'Galerías y entrega, pagos con Wompi, dispersión, correo propio'],
+        ['Casos totales', '62, de los cuales 17 son negativos'],
         ['Duración estimada', '90 minutos el recorrido completo'],
     ],
     anchos=[4, 13],
 )
 
 # ════════════════════════════════════════════════════════════════
-titulo('1. Antes de empezar')
+titulo('1. Cómo llenar este documento')
+
+parrafo(
+    'Bajo cada caso hay un bloque de registro. Márcalo siempre, incluso cuando todo va bien: '
+    'un caso sin marcar no se distingue de uno sin probar.'
+)
+
+t = doc.add_table(rows=0, cols=2)
+t.style = 'Table Grid'
+for campo, explicacion in [
+    ('Resultado',
+     'OK si hizo exactamente lo esperado. Falla si no. Bloqueado si no pudiste llegar a probarlo '
+     'porque algo anterior no funciona. Un caso a medias es Falla, no OK.'),
+    ('Severidad',
+     'Solo si falla. Bloqueante: impide seguir o pierde datos. Alta: rompe una función. '
+     'Media: molesta pero hay forma de seguir. Baja: cosmético.'),
+    ('Observaciones',
+     'Qué viste exactamente, no una interpretación. «El botón queda deshabilitado» sirve; '
+     '«no funciona» no. Si es visual, di en qué pantalla y ancho.'),
+    ('Qué corregir',
+     'Tu propuesta, si la tienes. Puede quedar vacío: es información para quien arregla, '
+     'no una obligación de quien prueba.'),
+]:
+    fila = t.add_row()
+    texto_celda(fila.cells[0], campo, bold=True)
+    sombrear(fila.cells[0], BAND_HEX)
+    texto_celda(fila.cells[1], explicacion)
+    fila.cells[0].width = Cm(3.4)
+    fila.cells[1].width = Cm(14)
+doc.add_paragraph()
+
+nota(
+    'Al final del documento hay un registro consolidado de defectos. Copia allí solo los casos '
+    'que fallaron: es la lista que se convierte en trabajo de corrección.'
+)
+
+# ════════════════════════════════════════════════════════════════
+titulo('2. Antes de empezar')
 
 parrafo('Direcciones', negrita=True)
 tabla(
     ['Qué', 'Local', 'Render'],
     [
         ['Aplicación', 'http://localhost:5173', 'https://<tu-servicio>.onrender.com'],
-        ['Correos recibidos', 'http://localhost:8025 (Mailpit)', 'La bandeja real del destinatario'],
-        ['Salud de la API', 'http://localhost:3000/health', 'https://<tu-servicio>.onrender.com/health'],
+        ['Correos recibidos', 'http://localhost:8025 (Mailpit)', 'No hay: el plan gratuito bloquea SMTP'],
+        ['Salud del servicio', 'http://localhost:3000/health', '<tu-servicio>/health'],
+        ['Salud de la base', 'http://localhost:3000/health/db', '<tu-servicio>/health/db'],
     ],
-    anchos=[4.5, 6.5, 6],
+    anchos=[4, 6.5, 6.5],
 )
 
 nota(
-    'En Render el servicio gratuito se duerme tras 15 minutos sin uso. La primera petición '
-    'puede tardar entre 30 y 60 segundos en responder: no es un fallo.'
+    'En Render el servicio gratuito se duerme tras 15 minutos sin uso: la primera petición puede '
+    'tardar entre 30 y 60 segundos. No es un fallo, y no debe registrarse como tal.'
+)
+nota(
+    'En Render tampoco hay correo: el plan gratuito bloquea los puertos SMTP. Los casos CP-04, '
+    'CP-05, CP-08 y CP-09 solo se pueden probar en local. Márcalos como Bloqueado.'
 )
 
 parrafo('Credenciales', negrita=True)
@@ -173,23 +276,8 @@ tabla(
 
 nota(
     'Los tres estados de fotógrafo (aprobado, pendiente, rechazado) están sembrados a propósito: '
-    'permiten probar el ciclo de aprobación sin tener que crear cuentas nuevas.'
+    'permiten probar el ciclo de aprobación sin crear cuentas nuevas.'
 )
-
-doc.add_page_break()
-
-# ════════════════════════════════════════════════════════════════
-titulo('2. Cómo registrar los resultados')
-parrafo(
-    'Marca cada caso con OK o FALLA. Si falla, anota qué viste exactamente y en qué paso. '
-    'Un caso a medias cuenta como falla.'
-)
-tabla(
-    ['Caso', 'Resultado', 'Observación'],
-    [['CP-01', '', ''], ['CP-02', '', ''], ['…', '', '']],
-    anchos=[3, 3, 11],
-)
-nota('Copia esta tabla al final del documento y llénala mientras pruebas.')
 
 # ════════════════════════════════════════════════════════════════
 CASOS = [
@@ -256,8 +344,8 @@ CASOS = [
 
             ('CP-11', 'Buscar fotógrafos',
              'Pulsa «Fotógrafos» en el menú.',
-             'Aparecen 3 fotógrafos aprobados, cada uno con tres fotos de su portafolio, sus '
-             'etiquetas y su precio desde.'),
+             'Aparecen 3 fotógrafos aprobados, cada uno con sus etiquetas y su precio desde. '
+             'Con bucket configurado, además tres fotos de su portafolio.'),
 
             ('CP-12', 'Filtrar por especialidad',
              'En el filtro de especialidad elige «Bodas».',
@@ -277,7 +365,7 @@ CASOS = [
 
             ('CP-16', 'Ver la ficha',
              'Limpia los filtros y abre María Gómez.',
-             'Se ven su biografía, los TRES productos con precio y contenido, y el portafolio completo.'),
+             'Se ven su biografía, los TRES productos con precio y contenido, y el portafolio.'),
 
             ('CP-17', 'Fotógrafo pendiente no aparece',
              'Busca «Carlos» en el buscador.',
@@ -340,7 +428,7 @@ CASOS = [
              'Solo una reserva puede ganar.'),
 
             ('CP-28', 'Correos de la reserva',
-             'Revisa la bandeja.',
+             'Revisa la bandeja. Solo aplica en local.',
              'Dos correos: a la fotógrafa «Nueva cita: …» con fecha, franja, producto y valor; '
              'al cliente «Reservamos tu fecha» avisando que tiene 24 horas para confirmar.'),
         ],
@@ -370,7 +458,7 @@ CASOS = [
              'NEGATIVO. Ya no aparece el formulario, solo la evidencia. El contrato aceptado no se toca.'),
 
             ('CP-33', 'Correo de contrato',
-             'Revisa la bandeja de ambas partes.',
+             'Revisa la bandeja de ambas partes. Solo aplica en local.',
              'Las dos reciben «Contrato aceptado · Orden ETC-…».'),
         ],
     ),
@@ -429,8 +517,7 @@ CASOS = [
 
             ('CP-43', 'Aprobar un fotógrafo',
              'Pulsa «Aprobar» en Carlos Duarte.',
-             'Sale de pendientes. Si buscas «Carlos» en la búsqueda pública, AHORA sí aparece. '
-             'Le llega el correo «¡Tu perfil fue aprobado!».'),
+             'Sale de pendientes. Si buscas «Carlos» en la búsqueda pública, AHORA sí aparece.'),
 
             ('CP-44', 'Rechazo sin motivo suficiente',
              'En otro fotógrafo, pulsa «Rechazar» y escribe solo «no».',
@@ -438,7 +525,7 @@ CASOS = [
 
             ('CP-45', 'Rechazar con motivo',
              'Escribe un motivo real y confirma.',
-             'Pasa a «Rechazados». Le llega un correo con el motivo textual.'),
+             'Pasa a «Rechazados». En local, le llega un correo con el motivo textual.'),
 
             ('CP-46', 'El rechazado ve el motivo',
              'Cierra sesión, ingresa como sofia@eterclack.test.',
@@ -485,7 +572,8 @@ CASOS = [
              '1. Ingresa como Juliana en dos navegadores.\n'
              '2. En uno, cambia la contraseña por recuperación.\n'
              '3. Recarga en el otro.',
-             'El segundo navegador queda desconectado. Cambiar la contraseña revoca todas las sesiones.'),
+             'El segundo navegador queda desconectado. Cambiar la contraseña revoca todas las '
+             'sesiones. Solo se puede probar en local: requiere correo.'),
         ],
     ),
     (
@@ -532,40 +620,174 @@ CASOS = [
     ),
 ]
 
+
+def bloque_caso(cid, nombre, pasos, esperado):
+    """Un caso: título, pasos/esperado, y el registro para anotar."""
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(10)
+    p.paragraph_format.space_after = Pt(3)
+    p.paragraph_format.keep_with_next = True
+    r = p.add_run(f'{cid} · {nombre}')
+    r.bold = True
+    r.font.size = Pt(11)
+    r.font.color.rgb = DANGER if 'NEGATIVO' in esperado else INK
+
+    t = doc.add_table(rows=0, cols=2)
+    t.style = 'Table Grid'
+    t.alignment = WD_TABLE_ALIGNMENT.LEFT
+
+    # Cabecera
+    fila = t.add_row()
+    texto_celda(fila.cells[0], 'PASOS', bold=True, size=8)
+    texto_celda(fila.cells[1], 'RESULTADO ESPERADO', bold=True, size=8)
+    sombrear(fila.cells[0], LIME_HEX)
+    sombrear(fila.cells[1], LIME_HEX)
+
+    # Contenido
+    fila = t.add_row()
+    texto_celda(fila.cells[0], pasos)
+    texto_celda(fila.cells[1], esperado)
+
+    # ── Registro ────────────────────────────────────────────────
+    fila = t.add_row()
+    celda = fila.cells[0].merge(fila.cells[1])
+    celda.text = ''
+    p = celda.paragraphs[0]
+    p.paragraph_format.space_after = Pt(2)
+    for texto, negrita in [
+        ('RESULTADO   ', True),
+        (f'{CAJA} OK      {CAJA} Falla      {CAJA} Bloqueado      {CAJA} No aplica', False),
+        ('          SEVERIDAD   ', True),
+        (f'{CAJA} Bloqueante  {CAJA} Alta  {CAJA} Media  {CAJA} Baja', False),
+    ]:
+        r = p.add_run(texto)
+        r.font.size = Pt(8.5)
+        r.bold = negrita
+        if negrita:
+            r.font.color.rgb = GREY
+    sombrear(celda, BAND_HEX)
+
+    # Espacio para escribir
+    fila = t.add_row()
+    fila.height = Cm(1.5)
+    fila.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+    celda = fila.cells[0].merge(fila.cells[1])
+    celda.text = ''
+    p = celda.paragraphs[0]
+    p.paragraph_format.space_after = Pt(0)
+    r = p.add_run('Observaciones (qué viste exactamente) y qué corregir:')
+    r.font.size = Pt(8)
+    r.italic = True
+    r.font.color.rgb = GREY
+    sombrear(celda, FIELD_HEX)
+
+    for f in t.rows:
+        f.cells[0].width = Cm(8.4)
+        if len(f.cells) > 1:
+            f.cells[1].width = Cm(9)
+
+    no_partir(t)
+    doc.add_paragraph()
+    return t
+
+
 for seccion, quien, casos in CASOS:
     doc.add_page_break()
     titulo(seccion)
     parrafo(quien, gris=True)
     for cid, nombre, pasos, esperado in casos:
-        p = doc.add_paragraph()
-        r = p.add_run(f'{cid} · {nombre}')
-        r.bold = True
-        r.font.size = Pt(11)
-        r.font.color.rgb = DANGER if 'NEGATIVO' in esperado else INK
-
-        tabla(
-            ['Pasos', 'Resultado esperado'],
-            [[pasos, esperado]],
-            anchos=[8.2, 8.8],
-        )
+        bloque_caso(cid, nombre, pasos, esperado)
 
 # ════════════════════════════════════════════════════════════════
 doc.add_page_break()
-titulo('11. Hoja de resultados')
-parrafo('Marca cada caso. Un caso a medias cuenta como falla.', gris=True)
+titulo('11. Resumen de la sesión')
 
-todos = [(cid, nombre) for _, _, casos in CASOS for cid, nombre, _, _ in casos]
-tabla(
-    ['Caso', 'Qué prueba', 'OK / Falla', 'Observación'],
-    [[cid, nombre, '', ''] for cid, nombre in todos],
-    anchos=[2, 6.5, 2.5, 6],
+parrafo('Cuenta los casos al terminar. Da el estado real de un vistazo.', gris=True)
+
+t = doc.add_table(rows=0, cols=4)
+t.style = 'Table Grid'
+fila = t.add_row()
+for i, h in enumerate(['OK', 'Falla', 'Bloqueado', 'No aplica']):
+    texto_celda(fila.cells[i], h, bold=True)
+    sombrear(fila.cells[i], LIME_HEX)
+fila = t.add_row()
+fila.height = Cm(1.1)
+fila.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+for i in range(4):
+    texto_celda(fila.cells[i], '')
+    fila.cells[i].width = Cm(4.35)
+doc.add_paragraph()
+
+parrafo('Veredicto', negrita=True)
+p = doc.add_paragraph()
+for texto in [
+    f'{CAJA} Se puede mostrar al cliente          ',
+    f'{CAJA} Solo con las correcciones marcadas          ',
+    f'{CAJA} No se puede mostrar todavía',
+]:
+    r = p.add_run(texto)
+    r.font.size = Pt(10)
+doc.add_paragraph()
+
+titulo('12. Registro de defectos', 2)
+parrafo(
+    'Copia aquí SOLO los casos que fallaron. Esta es la lista que se convierte en trabajo de '
+    'corrección: si un defecto no está aquí, no se va a arreglar.',
+    gris=True,
 )
 
+t = doc.add_table(rows=0, cols=5)
+t.style = 'Table Grid'
+fila = t.add_row()
+for i, h in enumerate(['Caso', 'Sev.', 'Qué falló', 'Corrección propuesta', 'Estado']):
+    texto_celda(fila.cells[i], h, bold=True, size=8)
+    sombrear(fila.cells[i], LIME_HEX)
+for _ in range(14):
+    fila = t.add_row()
+    fila.height = Cm(1.0)
+    fila.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+    for i, w in enumerate([1.7, 1.5, 5.2, 5.6, 3.4]):
+        texto_celda(fila.cells[i], '')
+        fila.cells[i].width = Cm(w)
+doc.add_paragraph()
+
+nota('Estado: pendiente · en curso · corregido · descartado (con motivo).')
+
+# ── Lista de verificación rápida ────────────────────────────────
 doc.add_page_break()
-titulo('12. Qué NO se prueba todavía')
+titulo('13. Lista de verificación rápida', 2)
+parrafo(
+    'Para marcar mientras pruebas, sin salir de la pantalla. El detalle va en el bloque de cada caso.',
+    gris=True,
+)
+
+todos = [(cid, nombre) for _, _, casos in CASOS for cid, nombre, _, _ in casos]
+mitad = (len(todos) + 1) // 2
+
+t = doc.add_table(rows=0, cols=4)
+t.style = 'Table Grid'
+fila = t.add_row()
+for i, h in enumerate(['', 'Caso', '', 'Caso']):
+    texto_celda(fila.cells[i], h, bold=True, size=8)
+    sombrear(fila.cells[i], LIME_HEX)
+for i in range(mitad):
+    fila = t.add_row()
+    izq = todos[i]
+    der = todos[i + mitad] if i + mitad < len(todos) else None
+    texto_celda(fila.cells[0], CAJA, size=10)
+    texto_celda(fila.cells[1], f'{izq[0]} · {izq[1]}', size=8)
+    texto_celda(fila.cells[2], CAJA if der else '', size=10)
+    texto_celda(fila.cells[3], f'{der[0]} · {der[1]}' if der else '', size=8)
+    for j, w in enumerate([0.8, 7.6, 0.8, 7.6]):
+        fila.cells[j].width = Cm(w)
+doc.add_paragraph()
+
+# ════════════════════════════════════════════════════════════════
+doc.add_page_break()
+titulo('14. Qué NO se prueba todavía')
 parrafo(
     'Estas funciones no están construidas. Si alguien las busca durante la prueba, no las va a '
-    'encontrar, y eso es lo esperado:'
+    'encontrar, y eso es lo esperado. No las registres como defectos:'
 )
 tabla(
     ['Función', 'Fase', 'Estado'],
@@ -585,5 +807,5 @@ nota(
 )
 
 doc.save('docs/EterClack - Plan de pruebas funcionales.docx')
-print('✓ docs/EterClack - Plan de pruebas funcionales.docx')
-print(f'  {len(todos)} casos de prueba en {len(CASOS)} secciones')
+print('docs/EterClack - Plan de pruebas funcionales.docx')
+print(f'  {len(todos)} casos en {len(CASOS)} secciones, cada uno con bloque de registro')
