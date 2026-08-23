@@ -18,6 +18,7 @@ import { OrdenPage } from './pages/Orden';
 import { PhotographerPanelPage } from './pages/PhotographerPanel';
 import { PanelAgendaPage } from './pages/PanelAgenda';
 import { AdminPanelPage } from './pages/AdminPanel';
+import { AdminUsuariosPage } from './pages/AdminUsuarios';
 import { NotFoundPage } from './pages/NotFound';
 
 function Protected({ roles, children }: { roles: Role[]; children: React.ReactNode }) {
@@ -98,6 +99,14 @@ export function App() {
           element={
             <Protected roles={['ADMIN']}>
               <AdminPanelPage />
+            </Protected>
+          }
+        />
+        <Route
+          path="admin/usuarios"
+          element={
+            <Protected roles={['ADMIN']}>
+              <AdminUsuariosPage />
             </Protected>
           }
         />

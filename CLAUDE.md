@@ -75,6 +75,15 @@ Nunca un `UPDATE` suelto sobre una columna de estado.
 `updateMany({ where: { id, status: 'DISPONIBLE' } })` y comprobando `count === 0`.
 Nunca leer-y-luego-escribir.
 
+### Administración
+
+**Un administrador no puede dejarse fuera.** No puede quitarse su propio rol, suspenderse ni
+borrarse. Cambiar de rol a un fotógrafo con reservas está bloqueado: sus órdenes quedarían sin
+dueño. Suspender o borrar revoca las sesiones abiertas en el mismo movimiento.
+
+**El borrado es lógico.** Hay órdenes, contratos y auditoría que apuntan al usuario; un borrado
+real rompería la trazabilidad que sostiene un contrato aceptado.
+
 ### Inmutabilidad
 
 **El contrato aceptado no se toca.** Se guarda el texto **renderizado**, no la plantilla, junto con
@@ -122,7 +131,7 @@ apps/
 │  └─ src/
 │     ├─ lib/       crypto · money · mailer · templates · s3 · audit · slug · codes
 │     ├─ plugins/   auth (JWT en cookies httpOnly, RBAC)
-│     └─ modules/   auth · catalog · photographers · slots · bookings · orders · admin
+│     └─ modules/   auth · catalog · photographers · slots · bookings · orders · users · admin
 └─ web/          React · Vite · Tailwind · PWA
    ├─ public/    manifest, service worker, íconos
    └─ src/
@@ -159,7 +168,7 @@ Esquinas rectas: la marca es geométrica, sin radios grandes.
 
 | Fase | Estado |
 |---|---|
-| 0 Fundaciones · 1 Identidad · 2 Descubrimiento · 3 Calendario y reserva · 4 Contrato y PWA | ✅ Hecho |
+| 0 Fundaciones · 1 Identidad · 2 Descubrimiento · 3 Calendario y reserva · 4 Contrato y PWA · Gestión de usuarios | ✅ Hecho |
 | 5 Galerías y entrega | ⬜ Siguiente |
 | 6 Wompi recaudo · 7 Wompi dispersión · 8 Correo propio · 9 Hostinger | ⬜ |
 

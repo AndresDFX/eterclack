@@ -102,6 +102,7 @@ export type TemplateData = {
     url: string;
   };
   'contract-accepted': { name: string; orderCode: string; url: string };
+  'account-created': { name: string; email: string; role: string; url: string };
 };
 
 export type TemplateName = keyof TemplateData;
@@ -279,6 +280,35 @@ Apartamos el ${d.eventDate} con ${d.photographerName}.
 Producto: ${d.packageName} — ${formatMoney(d.amountCents)}
 
 Confirma en ${d.holdHours} horas: ${d.url}`,
+      };
+    }
+
+    case 'account-created': {
+      const d = data as TemplateData['account-created'];
+      const rol =
+        d.role === 'ADMIN' ? 'administración' : d.role === 'PHOTOGRAPHER' ? 'fotógrafo' : 'cliente';
+      return {
+        subject: 'Tu cuenta en EterClack está lista',
+        html: layout(
+          'Te creamos una cuenta',
+          `<p>Hola ${escapeHtml(d.name)},</p>
+           <p>Administración creó una cuenta de <strong>${rol}</strong> a tu nombre.</p>
+           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                  style="margin:20px 0;border-left:3px solid ${BRAND.lime};">
+             <tr><td style="padding:4px 0 4px 14px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:${BRAND.bone};">
+               <strong>Tu correo:</strong> ${escapeHtml(d.email)}
+             </td></tr>
+           </table>
+           <p style="color:${BRAND.muted};font-size:13px;">La contraseña te la comparte quien creó
+              la cuenta. Cámbiala en cuanto entres.</p>`,
+          { label: 'Ingresar', url: d.url },
+        ),
+        text: `Hola ${d.name},
+
+Administración creó una cuenta de ${rol} a tu nombre.
+Correo: ${d.email}
+
+Ingresa en ${d.url} y cambia la contraseña en cuanto entres.`,
       };
     }
 

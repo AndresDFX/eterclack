@@ -68,6 +68,7 @@ Todas con la contraseña `Eterclack123*`:
 | **2 · Perfiles y descubrimiento** | Postulación de fotógrafo, aprobación/rechazo/suspensión por admin, perfiles, los tres productos, búsqueda con filtros | ✅ **Hecho** |
 | **3 · Calendario y reserva directa** | El fotógrafo publica franjas; el cliente elige producto + fecha y reserva. Orden, contrato versionado con evidencia | ✅ **Hecho** |
 | **4 · PWA** | Manifest, íconos de marca, service worker instalable y con modo sin conexión | ✅ **Hecho** |
+| **4.5 · Gestión de usuarios** | CRUD completo desde administración: crear cualquier rol, editar, suspender, borrar y restaurar | ✅ **Hecho** |
 | **5 · Galerías y entrega** | Subida directa a MinIO, miniaturas, selección con límite de producto, descargas firmadas | ⬜ Siguiente |
 | **6 · Wompi recaudo** | Checkout Web, firma de integridad, webhook idempotente, conciliación | ⬜ |
 | **7 · Wompi dispersión** | Libro contable, KYC bancario, corridas de pago, reintentos, conciliación | ⬜ |
@@ -107,7 +108,7 @@ apps/
 │  └─ src/
 │     ├─ lib/            crypto · money · mailer · plantillas · s3 · audit · slug · codes
 │     ├─ plugins/        auth (JWT en cookies, RBAC)
-│     └─ modules/        auth · catalog · photographers · slots · bookings · orders · admin
+│     └─ modules/        auth · catalog · photographers · slots · bookings · orders · users · admin
 └─ web/                  React 19 · Vite 6 · Tailwind 4 · PWA
    ├─ public/            manifest, service worker, íconos de marca
    └─ src/
@@ -162,7 +163,7 @@ la marca es geométrica, sin radios grandes. Todo vive en
 | [07 — Plan de pruebas](docs/07-plan-de-pruebas.md) | Qué se prueba, cómo y con qué criterio |
 | [08 — Plan de despliegue](docs/08-plan-de-despliegue.md) | De local a producción, con reversa definida |
 | [09 — Despliegue en Render](docs/09-despliegue-render.md) | Puente temporal con URL pública, paso a paso |
-| [Plan de pruebas funcionales (.docx)](docs/EterClack%20-%20Plan%20de%20pruebas%20funcionales.docx) | 62 casos con credenciales, pasos, resultado esperado y bloque para anotar observaciones |
+| [Plan de pruebas funcionales (.docx)](docs/EterClack%20-%20Plan%20de%20pruebas%20funcionales.docx) | 79 casos con credenciales, pasos, resultado esperado y bloque para anotar observaciones |
 
 ### Cambios frente a la cotización original
 

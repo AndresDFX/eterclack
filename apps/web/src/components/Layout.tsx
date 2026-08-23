@@ -110,9 +110,14 @@ export function Layout() {
                     </>
                   )}
                   {user.role === 'ADMIN' && (
-                    <MobileItem to="/admin" onClick={() => setMenuOpen(false)}>
-                      Administración
-                    </MobileItem>
+                    <>
+                      <MobileItem to="/admin" onClick={() => setMenuOpen(false)}>
+                        Administración
+                      </MobileItem>
+                      <MobileItem to="/admin/usuarios" onClick={() => setMenuOpen(false)}>
+                        Usuarios
+                      </MobileItem>
+                    </>
                   )}
                   <button
                     onClick={handleLogout}

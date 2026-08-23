@@ -183,8 +183,8 @@ tabla(
     [
         ['Alcance', 'Fases 0 a 4: identidad, descubrimiento, calendario, reserva, contrato, PWA'],
         ['Fuera de alcance', 'Galerías y entrega, pagos con Wompi, dispersión, correo propio'],
-        ['Casos totales', '62, de los cuales 17 son negativos'],
-        ['Duración estimada', '90 minutos el recorrido completo'],
+        ['Casos totales', '79, de los cuales 24 son negativos'],
+        ['Duración estimada', '2 horas el recorrido completo'],
     ],
     anchos=[4, 13],
 )
@@ -542,33 +542,128 @@ CASOS = [
         ],
     ),
     (
-        '9. Seguridad',
+        '9. Gestión de usuarios',
+        'admin@eterclack.test · en Administración → Usuarios',
+        [
+            ('CP-49', 'Ver el listado',
+             'Ingresa como admin y entra a «Usuarios».',
+             'Cuatro contadores arriba: total, clientes, fotógrafos y administración. Debajo, la '
+             'lista con el rol y el estado de cada uno. Tu propia fila lleva la etiqueta «Tú».'),
+
+            ('CP-50', 'Filtrar por rol',
+             'En el filtro de rol elige «Fotógrafo».',
+             'Quedan solo los fotógrafos. El contador de la derecha cuadra con lo que se ve.'),
+
+            ('CP-51', 'Buscar por correo',
+             'Escribe «juliana» en el buscador y pulsa Enter.',
+             'Queda solo Juliana Restrepo.'),
+
+            ('CP-52', 'Crear un CLIENTE',
+             '1. Pulsa «Crear usuario».\n'
+             '2. Deja el tipo en «Cliente».\n'
+             '3. Llena nombre, un correo nuevo y una contraseña de 8+ caracteres.\n'
+             '4. Deja marcado «Marcar el correo como verificado».\n'
+             '5. Pulsa «Crear usuario».',
+             'Aparece en la lista como Cliente · Activo. Cierra sesión, ingresa con ese correo y '
+             'esa contraseña: entra y puede reservar sin verificar nada.'),
+
+            ('CP-53', 'Crear un FOTÓGRAFO',
+             'Repite CP-52 pero elige el tipo «Fotógrafo».',
+             'En su fila aparece «Perfil: nombre-apellido · PENDING». Ingresa con esa cuenta y '
+             'entra a «Mi perfil»: el panel del fotógrafo carga. NO aparece todavía en la '
+             'búsqueda pública, porque está pendiente de aprobación.'),
+
+            ('CP-54', 'Crear un ADMINISTRADOR',
+             'Repite CP-52 pero elige el tipo «Administración».',
+             'Al elegir ese tipo sale un aviso en amarillo advirtiendo que tendrá control total. '
+             'Ingresa con esa cuenta: puede entrar a Administración y ver el listado de usuarios.'),
+
+            ('CP-55', 'Correo repetido',
+             'Intenta crear un usuario con juliana@eterclack.test.',
+             'NEGATIVO. «Ese correo ya tiene una cuenta.» No se crea nada.'),
+
+            ('CP-56', 'Contraseña corta',
+             'Intenta crear un usuario con una contraseña de 5 caracteres.',
+             'NEGATIVO. El mensaje aparece bajo el campo de contraseña, no como error general.'),
+
+            ('CP-57', 'Editar un usuario',
+             'Pulsa «Editar» en cualquiera, cambia el nombre y guarda.',
+             'Aparece «Cambios guardados» y el nombre nuevo se ve en la lista.'),
+
+            ('CP-58', 'Suspender corta la sesión',
+             '1. Ingresa como Daniel en otro navegador.\n'
+             '2. Como admin, pulsa «Suspender» en Daniel.\n'
+             '3. Recarga en el navegador de Daniel.',
+             'Daniel queda desconectado de inmediato. Suspender revoca las sesiones abiertas, no '
+             'solo impide entrar de nuevo.'),
+
+            ('CP-59', 'Cambiar la contraseña de alguien',
+             '1. Pulsa «Contraseña» en un usuario.\n'
+             '2. Escribe una nueva y confirma.\n'
+             '3. Ingresa con esa cuenta y la contraseña nueva.',
+             'Funciona. La contraseña se muestra en claro a propósito, para poder copiarla y '
+             'dársela a esa persona.'),
+
+            ('CP-60', 'Borrar y restaurar',
+             '1. Borra un usuario sin reservas.\n'
+             '2. Marca «Incluir borrados».\n'
+             '3. Pulsa «Restaurar».',
+             'Al borrarlo desaparece de la lista normal. Con «Incluir borrados» reaparece en gris '
+             'con la etiqueta «Borrado». Al restaurarlo vuelve a Activo.'),
+
+            ('CP-61', 'No puedes borrarte a ti mismo',
+             'Busca tu propia fila (la que dice «Tú») y mira los botones.',
+             'NEGATIVO. «Suspender» y «Borrar» están deshabilitados. Al pasar el cursor explican '
+             'por qué. Es lo que evita que te dejes fuera de tu propia plataforma.'),
+
+            ('CP-62', 'No puedes quitarte tu propio rol',
+             'Pulsa «Editar» en tu propia fila y mira el campo Rol.',
+             'NEGATIVO. El selector está deshabilitado con la nota «No puedes cambiar tu propio rol».'),
+
+            ('CP-63', 'Un fotógrafo con reservas no cambia de rol',
+             'Edita a María Gómez (tiene reservas) y cambia su rol a Cliente. Guarda.',
+             'NEGATIVO. «Tiene N reserva(s). Suspéndelo en vez de cambiarle el rol.» Cambiarlo '
+             'dejaría sus reservas sin fotógrafo.'),
+
+            ('CP-64', 'Correo de un usuario borrado',
+             '1. Borra un usuario.\n'
+             '2. Intenta crear otro con ese mismo correo.',
+             'NEGATIVO. «Ese correo pertenece a un usuario borrado. Restáuralo en vez de crear '
+             'otro.» El mensaje dice qué hacer, no solo que no se puede.'),
+
+            ('CP-65', 'Un cliente no entra a Usuarios',
+             'Como juliana@eterclack.test, escribe la dirección .../admin/usuarios',
+             'NEGATIVO. Te devuelve al inicio. No debe verse ni un instante el listado.'),
+        ],
+    ),
+    (
+        '10. Seguridad',
         'Estos casos DEBEN fallar. Si alguno pasa, hay una fuga de datos.',
         [
-            ('CP-49', 'Ver la orden de otro cliente',
+            ('CP-66', 'Ver la orden de otro cliente',
              '1. Como Juliana, copia la dirección de tu orden (…/ordenes/xxxx).\n'
              '2. Cierra sesión, ingresa como daniel@eterclack.test.\n'
              '3. Pega esa dirección.',
              'NEGATIVO CRÍTICO. No debe mostrar los datos. Debe dar error de permiso.'),
 
-            ('CP-50', 'Cliente entra al panel de admin',
+            ('CP-67', 'Cliente entra al panel de admin',
              'Como Juliana, escribe la dirección .../admin',
              'NEGATIVO. Te devuelve al inicio. No debe verse ni un instante el contenido.'),
 
-            ('CP-51', 'Cliente entra al panel de fotógrafo',
+            ('CP-68', 'Cliente entra al panel de fotógrafo',
              'Como Juliana, escribe .../panel/agenda',
              'NEGATIVO. Te devuelve al inicio.'),
 
-            ('CP-52', 'Fotógrafo entra al panel de admin',
+            ('CP-69', 'Fotógrafo entra al panel de admin',
              'Como María, escribe .../admin',
              'NEGATIVO. Te devuelve al inicio.'),
 
-            ('CP-53', 'Fotógrafo acepta el contrato del cliente',
+            ('CP-70', 'Fotógrafo acepta el contrato del cliente',
              'Como María, abre la orden de Juliana.',
              'Puede VER la orden (es suya también) pero NO aparece el formulario para aceptar el '
              'contrato. Eso solo lo hace el cliente.'),
 
-            ('CP-54', 'Cambiar contraseña cierra las sesiones',
+            ('CP-71', 'Cambiar contraseña cierra las sesiones',
              '1. Ingresa como Juliana en dos navegadores.\n'
              '2. En uno, cambia la contraseña por recuperación.\n'
              '3. Recarga en el otro.',
@@ -577,42 +672,42 @@ CASOS = [
         ],
     ),
     (
-        '10. Móvil y app instalable',
+        '11. Móvil y app instalable',
         'Con un teléfono real, no el emulador del navegador',
         [
-            ('CP-55', 'Navegación en móvil',
+            ('CP-72', 'Navegación en móvil',
              'Abre la aplicación en el teléfono.',
              'El menú aparece plegado (icono de tres líneas). Al abrirlo se ven las opciones de tu rol.'),
 
-            ('CP-56', 'Nada se sale de la pantalla',
+            ('CP-73', 'Nada se sale de la pantalla',
              'Recorre todas las pantallas deslizando.',
              'La página NUNCA se desliza hacia los lados. Solo hacia abajo.'),
 
-            ('CP-57', 'Todo se puede tocar',
+            ('CP-74', 'Todo se puede tocar',
              'Intenta pulsar los enlaces del pie, los filtros y los días del calendario con el dedo.',
              'Todo se pulsa a la primera. Nada exige precisión de uña.'),
 
-            ('CP-58', 'Reservar desde el móvil',
+            ('CP-75', 'Reservar desde el móvil',
              'Haz una reserva completa desde el teléfono.',
              'Los tres productos se apilan uno debajo de otro. El calendario se ve completo. '
              'Se puede completar la reserva.'),
 
-            ('CP-59', 'Los campos no hacen zoom',
+            ('CP-76', 'Los campos no hacen zoom',
              'Toca un campo de texto en iPhone.',
              'La pantalla NO hace zoom automático al enfocar.'),
 
-            ('CP-60', 'Instalar la app',
+            ('CP-77', 'Instalar la app',
              'En Chrome, menú → «Instalar aplicación». En iPhone, Compartir → «Añadir a inicio».',
              'Queda un icono con la marca. Al abrirlo, la app arranca a pantalla completa, sin '
              'barra de direcciones.'),
 
-            ('CP-61', 'Sin conexión',
+            ('CP-78', 'Sin conexión',
              '1. Abre la app instalada.\n'
              '2. Activa el modo avión.\n'
              '3. Recarga.',
              'Carga la estructura de la app, no la pantalla de error del navegador.'),
 
-            ('CP-62', 'Sin conexión NO finge que funciona',
+            ('CP-79', 'Sin conexión NO finge que funciona',
              'En modo avión, intenta hacer una reserva.',
              'NEGATIVO ESPERADO. Debe FALLAR con un error visible. Nunca debe decir que reservó: '
              'una reserva falsa es peor que un error.'),
@@ -809,3 +904,4 @@ nota(
 doc.save('docs/EterClack - Plan de pruebas funcionales.docx')
 print('docs/EterClack - Plan de pruebas funcionales.docx')
 print(f'  {len(todos)} casos en {len(CASOS)} secciones, cada uno con bloque de registro')
+

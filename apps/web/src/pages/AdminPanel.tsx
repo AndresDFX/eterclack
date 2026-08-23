@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, formatCOP } from '@/lib/api';
+import { AdminNav } from '@/components/AdminNav';
 
 type AdminPhotographer = {
   id: string;
@@ -88,6 +89,8 @@ export function AdminPanelPage() {
         <p className="overline mb-3">Administración</p>
         <h1 className="text-3xl text-bone sm:text-4xl">Panel de control</h1>
       </header>
+
+      <AdminNav active="fotografos" />
 
       {/* ── Indicadores ───────────────────────────────────────── */}
       <div className="mb-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

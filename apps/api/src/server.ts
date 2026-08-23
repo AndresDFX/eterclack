@@ -18,6 +18,7 @@ import slotRoutes from './modules/slots/routes.js';
 import bookingRoutes from './modules/bookings/routes.js';
 import orderRoutes from './modules/orders/routes.js';
 import adminRoutes from './modules/admin/routes.js';
+import userRoutes from './modules/users/routes.js';
 
 const app = Fastify({
   logger:
@@ -80,6 +81,7 @@ async function main(): Promise<void> {
   await app.register(bookingRoutes, { prefix: '/api/bookings' });
   await app.register(orderRoutes, { prefix: '/api/orders' });
   await app.register(adminRoutes, { prefix: '/api/admin' });
+  await app.register(userRoutes, { prefix: '/api/admin/users' });
 
   // ─── Frontend ─────────────────────────────────────────────
   // Servir la SPA desde la misma API mantiene un único origen: la cookie de
