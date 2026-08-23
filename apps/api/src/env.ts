@@ -9,12 +9,19 @@ const boolFromEnv = (def: boolean) =>
     .optional()
     .transform((v) => (v === undefined ? def : v === 'true' || v === '1'));
 
+/**
+ * Render inyecta la URL pública del servicio. Si está, se usa como valor por
+ * defecto de WEB_URL y API_URL: un paso manual menos, y sin el riesgo de que
+ * queden apuntando a localhost en producción.
+ */
+const URL_RENDER = process.env.RENDER_EXTERNAL_URL?.trim() ?? '';
+
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   APP_NAME: z.string().default('EterClack'),
   PORT: intFromEnv(3000),
-  WEB_URL: z.string().url().default('http://localhost:5173'),
-  API_URL: z.string().url().default('http://localhost:3000'),
+  WEB_URL: z.string().url().default(URL_RENDER || 'http://localhost:5173'),
+  API_URL: z.string().url().default(URL_RENDER || 'http://localhost:3000'),
 
   DATABASE_URL: z.string().min(1),
   // Declarado para cuando entren las colas (miniaturas, correo, dispersión).
@@ -90,13 +97,29 @@ const schema = z.object({
   PAYOUT_MIN_AMOUNT_CENTS: intFromEnv(5_000_000),
 });
 
-const parsed = schema.safeParse(process.env);
+/**
+ * Render crea las variables marcadas `sync: false` que se dejan en blanco
+ * como CADENA VACÍA. Para zod, '' no es undefined: el `.default()` no se
+ * aplica y una validación como `.url()` falla, tumbando el arranque con un
+ * mensaje que no sugiere la causa.
+ *
+ * Normalizar aquí resuelve el problema para todas las variables a la vez,
+ * en vez de tener que recordar el caso en cada esquema.
+ */
+const entorno = Object.fromEntries(
+  Object.entries(process.env).filter(([, valor]) => valor !== undefined && valor.trim() !== ''),
+);
+
+const parsed = schema.safeParse(entorno);
 
 if (!parsed.success) {
-  console.error('✗ Variables de entorno inválidas:');
+  console.error('✗ La aplicación no puede arrancar: variables de entorno inválidas.');
   for (const issue of parsed.error.issues) {
     console.error(`  · ${issue.path.join('.')}: ${issue.message}`);
   }
+  console.error('');
+  console.error('  Revisa la sección Environment del servicio. Una variable en blanco');
+  console.error('  equivale a no definirla: se usa el valor por defecto.');
   process.exit(1);
 }
 

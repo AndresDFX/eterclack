@@ -58,7 +58,11 @@ USER eterclack
 WORKDIR /app/apps/api
 EXPOSE 3000
 
-# `migrate deploy` es idempotente: aplica lo pendiente y sigue.
-# Va aquí y no en un paso aparte para que un rollback de imagen no
-# deje la base adelantada respecto al código.
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/server.js"]
+# `migrate deploy` es idempotente: aplica lo pendiente y sigue. Va aquí y no
+# en un paso aparte para que un rollback de imagen no deje la base adelantada
+# respecto al código.
+#
+# El sembrado va detrás porque la pestaña Shell de Render es de pago: en el
+# plan gratuito no hay otra forma de poblar la base. Solo actúa si está vacía,
+# así que no se repite en cada despertar del servicio.
+CMD ["sh", "-c", "npx prisma migrate deploy && { [ \"$SEED_ON_START\" = \"true\" ] && node dist/prisma/sembrar-si-vacia.js; true; } && node dist/src/server.js"]

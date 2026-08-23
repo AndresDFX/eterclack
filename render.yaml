@@ -49,13 +49,14 @@ services:
       - key: APP_NAME
         value: EterClack
 
-      # WEB_URL y API_URL apuntan a la URL que Render asigna.
-      # Se completan en el panel tras el primer despliegue: hasta entonces
-      # no se conoce el dominio.
-      - key: WEB_URL
-        sync: false
-      - key: API_URL
-        sync: false
+      # La pestaña Shell de Render es de pago: en el plan gratuito no hay forma
+      # de ejecutar la semilla a mano. Se siembra al arrancar, y solo si la
+      # base está vacía. Ponlo en 'false' cuando ya no quieras datos de prueba.
+      - key: SEED_ON_START
+        value: 'true'
+
+      # WEB_URL y API_URL se toman solas de RENDER_EXTERNAL_URL, que Render
+      # inyecta con el dominio del servicio. No hay que tocarlas.
 
       # ── Secretos de sesión ──────────────────────────────────
       # Render los genera; nunca se escriben aquí.

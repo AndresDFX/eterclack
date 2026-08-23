@@ -84,6 +84,9 @@ export async function deleteObject(bucket: UploadTarget, key: string): Promise<v
  */
 export function publicUrl(key: string | null | undefined): string | null {
   if (!key) return null;
+  // Sin credenciales no hay almacenamiento: devolver una URL que dará 404
+  // llenaría la interfaz de iconos de imagen rota. Mejor decir que no hay foto.
+  if (!env.S3_ACCESS_KEY) return null;
   if (env.S3_PUBLIC_BASE_URL) {
     return `${env.S3_PUBLIC_BASE_URL.replace(/\/$/, '')}/${key}`;
   }

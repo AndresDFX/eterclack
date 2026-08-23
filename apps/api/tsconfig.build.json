@@ -7,7 +7,9 @@
     "sourceMap": true,
     "declaration": false
   },
-  // La semilla y las pruebas se ejecutan con tsx, no se compilan al bundle.
-  "include": ["src/**/*.ts"],
+  // La semilla se compila junto al servidor: en producción se ejecuta desde
+  // dist/, donde sus imports relativos a ../src/ sí resuelven. Sin esto habría
+  // que meter el código fuente en la imagen final solo para poder sembrar.
+  "include": ["src/**/*.ts", "prisma/**/*.ts"],
   "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts", "dist", "node_modules"]
 }
