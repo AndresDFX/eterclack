@@ -41,7 +41,8 @@
       <h1>Despliegue en Render</h1>
       <p class="lede">Puente temporal con URL pública, paso a paso</p>
     </header>
-    <article class="md"><p><strong>Render es un puente, no el destino.</strong> La versión definitiva va a un VPS de Hostinger
+    <article class="md"><h1>09 — Despliegue en Render (temporal)</h1>
+<p><strong>Render es un puente, no el destino.</strong> La versión definitiva va a un VPS de Hostinger
 (<a href="06-despliegue-hostinger.html">docs/06</a>). Esto sirve para tener una URL pública mientras tanto, con
 lo mínimo por hacer a mano.</p>
 <p>Todo lo que sigue está ya preparado en el repositorio: <code>Dockerfile</code>, <code>render.yaml</code> y el código que
@@ -133,12 +134,22 @@ es un servicio en lugar de dos.</p>
 </tr>
 <tr>
 <td><code>apps/api/src/env.ts</code></td>
-<td>S3 y Redis son opcionales: sin bucket la app arranca igual, solo sin fotos</td>
+<td>Trata una variable vacía como no definida, y toma la URL de <code>RENDER_EXTERNAL_URL</code></td>
+</tr>
+<tr>
+<td><code>apps/api/prisma/sembrar-si-vacia.ts</code></td>
+<td>Siembra al arrancar, solo si la base está vacía</td>
 </tr>
 </tbody></table></div>
-<p><strong>Verificado antes de entregarlo:</strong> la imagen se construyó y se ejecutó contra la base real. Se
-comprobaron el health check, la SPA, las rutas del cliente, el 404 de API en JSON, las cabeceras de
-caché, la sesión con cookie y una reserva completa de punta a punta.</p>
+<p><strong>Verificado antes de entregarlo</strong>, construyendo la imagen y ejecutándola:</p>
+<ul>
+<li>Arranque con las diez variables opcionales <strong>en blanco</strong>, como las deja Render.</li>
+<li>Arranque en frío contra una base <strong>vacía</strong>: migró, sembró y sirvió sin intervención.</li>
+<li>Segundo arranque: detectó los datos y <strong>no</strong> volvió a sembrar.</li>
+<li>Escucha en <code>0.0.0.0</code> y en el <code>PORT</code> que inyecta Render.</li>
+<li>Health check, SPA, rutas del cliente, 404 de API en JSON, cabeceras de caché, sesión con cookie
+y una reserva completa de punta a punta.</li>
+</ul>
 <hr>
 <h2>3. Tus pasos manuales</h2>
 <h3>Paso 1 · Conectar el repositorio a Render <em>(5 min, obligatorio)</em></h3>
@@ -147,52 +158,80 @@ caché, la sesión con cookie y una reserva completa de punta a punta.</p>
 <li><strong>New +</strong> → <strong>Blueprint</strong>.</li>
 <li>Conecta tu GitHub y elige <strong><code>AndresDFX/eterclack</code></strong>.</li>
 <li>Render detecta <code>render.yaml</code> y muestra el servicio <code>eterclack</code> y la base <code>eterclack-db</code>.</li>
-<li>Te pedirá los valores marcados como <code>sync: false</code>. <strong>Puedes dejarlos vacíos por ahora</strong> salvo
-los dos del paso 2 — la aplicación arranca igual.</li>
+<li>Te pedirá los valores marcados como <code>sync: false</code> (bucket, correo, Wompi).
+<strong>Déjalos todos vacíos.</strong> La aplicación arranca igual: sin bucket los perfiles se ven sin
+portafolio, y sin correo no se envían verificaciones — pero las cuentas de prueba ya vienen
+verificadas.</li>
 <li><strong>Apply</strong>.</li>
 </ol>
-<p>La primera construcción tarda entre 5 y 10 minutos (compila las dos apps).</p>
-<h3>Paso 2 · Poner la URL real <em>(2 min, obligatorio)</em></h3>
-<p>Hasta que Render no despliega, no se sabe el dominio. Cuando termine:</p>
+<blockquote>
+<p>Una variable en blanco se trata como no definida y se usa su valor por defecto. Esto está
+probado: la imagen arranca con las diez variables opcionales vacías.</p>
+</blockquote>
+<h3>Paso 2 · Esperar y comprobar <em>(nada que hacer)</em></h3>
+<p>El primer build tarda entre 5 y 10 minutos: compila las dos aplicaciones. Cuando termine, al
+arrancar el contenedor ocurre esto solo, en orden:</p>
 <ol>
-<li>Copia la URL que te asignó, por ejemplo <code>https://eterclack.onrender.com</code>.</li>
-<li>Ve a <strong>Environment</strong> del servicio y pon esa misma URL en:</li>
+<li>Aplica las migraciones de la base.</li>
+<li><strong>Siembra los datos de prueba</strong>, pero solo si la base está vacía.</li>
+<li>Levanta el servidor.</li>
 </ol>
+<p>No hay que ejecutar ningún comando a mano. La pestaña <strong>Shell</strong> de Render <strong>es de pago</strong>: en el
+plan gratuito no existe, y por eso el sembrado va en el arranque.</p>
+<p>La URL tampoco hay que configurarla: Render publica <code>RENDER_EXTERNAL_URL</code> con el dominio del
+servicio, y la aplicación la toma de ahí para <code>WEB_URL</code> y <code>API_URL</code>.</p>
+<blockquote>
+<p>Si alguna vez quieres dejar de sembrar (por ejemplo, con datos reales ya cargados), pon
+<code>SEED_ON_START</code> en <code>false</code> desde <strong>Environment</strong>.</p>
+</blockquote>
+<h3>Paso 3 · Ver la URL <em>(30 segundos)</em></h3>
+<p><strong>La URL no está en la pestaña «Syncs» del Blueprint.</strong> Ahí solo se ve si el blueprint se
+sincronizó con el repositorio, que es otra cosa.</p>
+<ol>
+<li>En el menú de la izquierda del Blueprint, pulsa <strong>Resources</strong>.</li>
+<li>Verás dos recursos: <strong><code>eterclack</code></strong> (el servicio web) y <strong><code>eterclack-db</code></strong> (la base).</li>
+<li>Pulsa <strong><code>eterclack</code></strong>.</li>
+<li>La URL aparece <strong>arriba, bajo el nombre del servicio</strong>, con forma
+<code>https://eterclack.onrender.com</code>. Es un enlace: se puede pulsar y copiar.</li>
+</ol>
+<p>Junto al nombre está el estado del servicio. Esto es lo que significa cada uno:</p>
 <div class="tabla"><table>
 <thead>
 <tr>
-<th>Variable</th>
-<th>Valor</th>
+<th>Estado</th>
+<th>Qué pasa</th>
+<th>Qué hacer</th>
 </tr>
 </thead>
 <tbody><tr>
-<td><code>WEB_URL</code></td>
-<td><code>https://eterclack.onrender.com</code></td>
+<td><strong>Building</strong></td>
+<td>Compilando la imagen</td>
+<td>Esperar. El primero tarda 5–10 min</td>
 </tr>
 <tr>
-<td><code>API_URL</code></td>
-<td><code>https://eterclack.onrender.com</code></td>
+<td><strong>Deploying</strong></td>
+<td>Arrancando el contenedor</td>
+<td>Esperar</td>
+</tr>
+<tr>
+<td><strong>Live</strong></td>
+<td>Funcionando</td>
+<td>Abrir la URL</td>
+</tr>
+<tr>
+<td><strong>Deploy failed</strong></td>
+<td>El build o el arranque falló</td>
+<td>Abrir <strong>Logs</strong> y leer el final</td>
+</tr>
+<tr>
+<td><strong>Suspended</strong></td>
+<td>Sin horas gratuitas o suspendido a mano</td>
+<td>Revisar el uso del plan</td>
 </tr>
 </tbody></table></div>
-<ol start="3">
-<li><strong>Save changes</strong>. Render redespliega solo.</li>
-</ol>
 <blockquote>
-<p>Las dos apuntan al mismo sitio. No es un error: es la consecuencia de servir todo desde un origen.</p>
-</blockquote>
-<h3>Paso 3 · Sembrar los datos de prueba <em>(2 min, obligatorio)</em></h3>
-<p>Sin esto la plataforma está vacía: no hay fotógrafos, ni catálogo, ni cuentas.</p>
-<ol>
-<li>En el servicio, abre la pestaña <strong>Shell</strong>.</li>
-<li>Ejecuta:</li>
-</ol>
-<pre><code class="language-bash">npx tsx prisma/seed.ts
-</code></pre>
-<p>Deja 9 usuarios, 5 fotógrafos, 8 especialidades, 12 zonas, 15 productos y ~186 franjas de agenda.
-Las credenciales están en el plan de pruebas funcionales.</p>
-<blockquote>
-<p>Si configuraste el bucket del paso 4, también sube unas 40 fotos de portafolio. Si no, corre
-igual y los perfiles se ven sin portafolio.</p>
+<p>Mientras el estado no sea <strong>Live</strong>, la URL existe pero devuelve un error de Render. No es un
+fallo de la aplicación.</p>
 </blockquote>
 <h3>Paso 4 · Bucket para las fotos <em>(10 min, opcional pero recomendado)</em></h3>
 <p>Sin esto la plataforma funciona, pero un marketplace de fotografía sin fotos se ve a medio hacer.</p>
@@ -231,7 +270,10 @@ Guarda el Access Key ID, el Secret y el Account ID.</li>
 </tr>
 </tbody></table></div>
 <ol start="6">
-<li>Guarda y vuelve a correr la semilla (paso 3) para que suba las fotos.</li>
+<li>Guarda. Render redespliega solo.</li>
+<li>Para que la semilla suba las fotos hace falta que vuelva a correr sobre una base vacía. Lo más
+simple: en <strong>eterclack-db</strong> pulsa los tres puntos → <strong>Reset database</strong>, y en el servicio web
+<strong>Manual Deploy</strong> → <strong>Deploy latest commit</strong>. Volverá a migrar y sembrar, ahora con fotos.</li>
 </ol>
 <p><strong>Con Backblaze B2</strong> es equivalente: bucket público, application key, y <code>S3_ENDPOINT</code> con la forma
 <code>https://s3.&lt;region&gt;.backblazeb2.com</code>.</p>
@@ -312,9 +354,9 @@ Es a propósito: ese error, descubierto en caliente, cuesta transacciones reales
 </tr>
 <tr>
 <td>3</td>
-<td>Hay datos</td>
+<td>Se sembró sola</td>
 <td>Ve a «Fotógrafos»</td>
-<td>3 fotógrafos aprobados</td>
+<td>3 fotógrafos aprobados. Si sale vacío, mira los logs: la semilla deja rastro</td>
 </tr>
 <tr>
 <td>4</td>
