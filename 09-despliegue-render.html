@@ -138,7 +138,7 @@ es un servicio en lugar de dos.</p>
 </tr>
 <tr>
 <td><code>apps/api/prisma/sembrar-si-vacia.ts</code></td>
-<td>Siembra al arrancar, solo si la base está vacía</td>
+<td>Siembra en segundo plano tras abrir el puerto, solo si la base está vacía</td>
 </tr>
 </tbody></table></div>
 <p><strong>Verificado antes de entregarlo</strong>, construyendo la imagen y ejecutándola:</p>
@@ -147,6 +147,10 @@ es un servicio en lugar de dos.</p>
 <li>Arranque en frío contra una base <strong>vacía</strong>: migró, sembró y sirvió sin intervención.</li>
 <li>Segundo arranque: detectó los datos y <strong>no</strong> volvió a sembrar.</li>
 <li>Escucha en <code>0.0.0.0</code> y en el <code>PORT</code> que inyecta Render.</li>
+<li><strong>Puerto abierto en 6 segundos</strong> en arranque en frío. El sembrado ya no lo bloquea.</li>
+<li><strong>Con la base inalcanzable</strong>: el contenedor sigue vivo, <code>/health</code> responde 200, la web se sirve,
+<code>/health/db</code> devuelve 503 y el error real (<code>P1001</code>) queda en los logs. Antes el contenedor moría
+antes de abrir puerto y el proveedor solo reportaba «no open ports», sin pista de la causa.</li>
 <li>Health check, SPA, rutas del cliente, 404 de API en JSON, cabeceras de caché, sesión con cookie
 y una reserva completa de punta a punta.</li>
 </ul>
@@ -281,45 +285,36 @@ simple: en <strong>eterclack-db</strong> pulsa los tres puntos → <strong>Reset
 <p><code>S3_FORCE_PATH_STYLE</code> ya está en <code>false</code> en el blueprint, que es lo que R2 y B2 esperan. MinIO
 en local sí necesita <code>true</code>, y por eso vive en <code>.env</code> y no aquí.</p>
 </blockquote>
-<h3>Paso 5 · Correo <em>(10 min, opcional)</em></h3>
-<p>Sin esto, los correos de verificación <strong>no se envían</strong> y no podrás verificar cuentas nuevas.
-Las cuentas de la semilla ya vienen verificadas, así que puedes probar todo el flujo de reserva
-sin correo.</p>
-<p><strong>Con Brevo</strong> (300 correos/día gratis):</p>
-<ol>
-<li>Crea cuenta en brevo.com.</li>
-<li><strong>SMTP &amp; API</strong> → <strong>SMTP</strong> → copia el servidor, el usuario y la clave.</li>
-<li>En Render:</li>
-</ol>
+<h3>Paso 5 · Correo <em>(no funciona en el plan gratuito)</em></h3>
+<p><strong>El plan gratuito de Render bloquea la salida por los puertos 25, 465 y 587.</strong> Es política del
+proveedor, no configuración: <em>«Free web services can&#39;t send outbound network traffic on ports 25,
+465, or 587, commonly used for SMTP.»</em> Ningún relay SMTP funciona ahí — ni Brevo, ni Resend, ni
+SendGrid. Los envíos fallan en silencio.</p>
+<p>Consecuencia práctica: <strong>no se pueden verificar cuentas nuevas</strong> en Render gratuito.</p>
+<p>Y no es un obstáculo para probar: <strong>las siete cuentas de la semilla ya vienen verificadas</strong>, así
+que el recorrido completo —buscar, reservar, aceptar contrato, panel del fotógrafo,
+administración— se puede hacer entero sin correo.</p>
+<p>Si necesitas correo, hay dos caminos:</p>
 <div class="tabla"><table>
 <thead>
 <tr>
-<th>Variable</th>
-<th>Valor</th>
+<th>Camino</th>
+<th>Qué implica</th>
 </tr>
 </thead>
 <tbody><tr>
-<td><code>SMTP_HOST</code></td>
-<td><code>smtp-relay.brevo.com</code></td>
+<td>Subir a un plan de pago (USD 7/mes)</td>
+<td>Se desbloquean los puertos SMTP y basta con llenar <code>SMTP_HOST</code>, <code>SMTP_USER</code> y <code>SMTP_PASSWORD</code></td>
 </tr>
 <tr>
-<td><code>SMTP_USER</code></td>
-<td>el que te dio Brevo</td>
-</tr>
-<tr>
-<td><code>SMTP_PASSWORD</code></td>
-<td>la clave SMTP</td>
-</tr>
-<tr>
-<td><code>MAIL_FROM_ADDRESS</code></td>
-<td>un correo tuyo verificado en Brevo</td>
-</tr>
-<tr>
-<td><code>MAIL_REPLY_TO</code></td>
-<td>el mismo, o el de contacto</td>
+<td>Integrar la API HTTP del proveedor</td>
+<td>Resend, Brevo y SendGrid tienen REST sobre el puerto 443, que sí sale. Requiere añadir un transporte nuevo al módulo <code>mail</code> — trabajo de desarrollo, no de configuración</td>
 </tr>
 </tbody></table></div>
-<p>Resend y SendGrid funcionan igual; solo cambian el host y las credenciales.</p>
+<blockquote>
+<p>En Hostinger esto no aplica: el puerto 25 está abierto y el plan contempla servidor de correo
+propio (<a href="03-servidor-correo.html">docs/03</a>).</p>
+</blockquote>
 <h3>Paso 6 · Wompi en sandbox <em>(5 min, opcional)</em></h3>
 <p>Solo aplica cuando se construya la fase 6. Hoy el botón de pago está deshabilitado.</p>
 <p>Cuando llegue: <code>WOMPI_PUBLIC_KEY</code>, <code>WOMPI_PRIVATE_KEY</code>, <code>WOMPI_INTEGRITY_SECRET</code> y
@@ -343,8 +338,14 @@ Es a propósito: ese error, descubierto en caliente, cuesta transacciones reales
 <tbody><tr>
 <td>1</td>
 <td>El servicio vive</td>
-<td><code>https://tu-app.onrender.com/health</code></td>
-<td><code>{&quot;status&quot;:&quot;ok&quot;,&quot;db&quot;:&quot;ok&quot;}</code></td>
+<td><code>.../health</code></td>
+<td><code>{&quot;status&quot;:&quot;ok&quot;,&quot;service&quot;:&quot;eterclack-api&quot;}</code></td>
+</tr>
+<tr>
+<td>1b</td>
+<td>La base responde</td>
+<td><code>.../health/db</code></td>
+<td><code>{&quot;status&quot;:&quot;ok&quot;,&quot;db&quot;:&quot;ok&quot;}</code>. Si da 503, la base falla pero el servicio sigue en pie: mira los logs</td>
 </tr>
 <tr>
 <td>2</td>
@@ -387,6 +388,47 @@ Es a propósito: ese error, descubierto en caliente, cuesta transacciones reales
 <p>El paso 5 es el que valida todo el diseño de un solo origen. Si al recargar te saca, algo pasó
 con las cookies.</p>
 </blockquote>
+<hr>
+<h2>4.1 Si algo falla</h2>
+<div class="tabla"><table>
+<thead>
+<tr>
+<th>En los logs</th>
+<th>Qué pasa</th>
+<th>Arreglo</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Port scan timeout reached, no open ports detected</code></td>
+<td>El proceso murió antes de escuchar</td>
+<td>Mira las líneas anteriores: casi siempre es validación de entorno</td>
+</tr>
+<tr>
+<td><code>✗ La aplicación no puede arrancar: variables de entorno inválidas</code></td>
+<td>Falta o sobra una variable</td>
+<td>El mensaje dice cuál. Una variable en blanco cuenta como no definida</td>
+</tr>
+<tr>
+<td><code>· DATABASE_URL: String must contain at least 1 character(s)</code></td>
+<td>La base no se creó o no se enlazó</td>
+<td>Render permite <strong>una sola</strong> Postgres gratuita por workspace. Si ya tenías otra, bórrala o cambia <code>plan</code> a <code>basic-256mb</code></td>
+</tr>
+<tr>
+<td><code>migracion fallida, reintento N/5</code> seguido de <code>P1001</code></td>
+<td>La base no responde</td>
+<td>El servicio arranca igual. Revisa que <code>eterclack-db</code> esté <strong>Available</strong></td>
+</tr>
+<tr>
+<td><code>/health/db</code> devuelve 503</td>
+<td>La app vive, la base no</td>
+<td>Mismo caso anterior</td>
+</tr>
+<tr>
+<td>El servicio queda en «Deploying» y acaba cancelado</td>
+<td>El health check nunca pasó</td>
+<td>No debería ocurrir: <code>/health</code> ya no consulta la base</td>
+</tr>
+</tbody></table></div>
 <hr>
 <h2>5. Costo</h2>
 <div class="tabla"><table>
