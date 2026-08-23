@@ -1,5 +1,6 @@
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { s3, BUCKETS } from '../src/lib/s3.js';
+import { env } from '../src/env.js';
 
 /**
  * Descarga fotos de muestra y las sube al bucket público de MinIO.
@@ -25,7 +26,9 @@ async function download(seed: string, w: number, h: number): Promise<Buffer | nu
   }
 }
 
-let almacenamientoCaido = false;
+// Sin credenciales no hay dónde guardar: descargar 80 imágenes para tirarlas
+// solo alarga el arranque. Se decide una vez, al cargar el módulo.
+let almacenamientoCaido = !env.S3_ACCESS_KEY;
 
 async function upload(key: string, body: Buffer): Promise<void> {
   if (almacenamientoCaido) throw new Error('almacenamiento no disponible');
@@ -53,7 +56,7 @@ export async function seedPortfolio(
   count: number,
 ): Promise<SeededImage[]> {
   const out: SeededImage[] = [];
-  if (almacenamientoCaido) return out;
+  if (almacenamientoCaido) return out; // sin bucket: ni se descarga
 
   for (let i = 0; i < count; i++) {
     const seed = `${photographerSlug}-${i}`;
@@ -84,6 +87,8 @@ export async function seedPortfolio(
 export async function seedProfileImages(
   photographerSlug: string,
 ): Promise<{ avatarKey: string | null; coverKey: string | null }> {
+  if (almacenamientoCaido) return { avatarKey: null, coverKey: null };
+
   const [avatar, cover] = await Promise.all([
     download(`${photographerSlug}-avatar`, 400, 400),
     download(`${photographerSlug}-cover`, 1600, 600),

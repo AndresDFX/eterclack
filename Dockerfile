@@ -58,11 +58,14 @@ USER eterclack
 WORKDIR /app/apps/api
 EXPOSE 3000
 
-# `migrate deploy` es idempotente: aplica lo pendiente y sigue. Va aquí y no
-# en un paso aparte para que un rollback de imagen no deje la base adelantada
-# respecto al código.
+# La migración se reintenta y NO bloquea el arranque del servidor.
 #
-# El sembrado va detrás porque la pestaña Shell de Render es de pago: en el
-# plan gratuito no hay otra forma de poblar la base. Solo actúa si está vacía,
-# así que no se repite en cada despertar del servicio.
-CMD ["sh", "-c", "npx prisma migrate deploy && { [ \"$SEED_ON_START\" = \"true\" ] && node dist/prisma/sembrar-si-vacia.js; true; } && node dist/src/server.js"]
+# Con `&&`, un fallo de migración (la base aún aprovisionándose, un bloqueo
+# colgado) mataría el contenedor antes de abrir el puerto: el proveedor solo
+# vería «no open ports» y no habría forma de leer el error real. Así el
+# servicio queda arriba y depurable, y /health/db dice si la base responde.
+#
+# Se invoca el binario por ruta en vez de `npx`: elimina la resolución en
+# runtime y el riesgo de que intente escribir en el HOME del usuario sin
+# privilegios, que no es escribible.
+CMD ["sh", "-c", "for i in 1 2 3 4 5; do /app/node_modules/.bin/prisma migrate deploy && break || { echo \"migracion fallida, reintento $i/5\"; sleep 5; }; done; exec node dist/src/server.js"]

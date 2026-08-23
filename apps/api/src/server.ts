@@ -49,12 +49,26 @@ async function main(): Promise<void> {
   await app.register(authPlugin);
 
   // ─── Salud ────────────────────────────────────────────────
+  // Vitalidad: responde 200 siempre que el proceso esté vivo. NO consulta la
+  // base a propósito. Es el que vigila el proveedor: si devolviera 503 por una
+  // caída pasajera de Postgres, se cancelaría el despliegue o se reiniciaría la
+  // instancia, tumbando también el frontend, que se sirve perfectamente sin base.
   app.get('/health', { config: { rateLimit: false } }, async (_req, reply) => {
+    return reply.send({ status: 'ok', service: 'eterclack-api' });
+  });
+
+  // Disponibilidad real: este sí toca la base. Para monitoreo y diagnóstico,
+  // no para que el proveedor decida si mata el servicio.
+  app.get('/health/db', { config: { rateLimit: false } }, async (_req, reply) => {
     try {
       await prisma.$queryRaw`SELECT 1`;
-      return reply.send({ status: 'ok', service: 'eterclack-api', db: 'ok' });
-    } catch {
-      return reply.code(503).send({ status: 'degraded', db: 'error' });
+      return reply.send({ status: 'ok', db: 'ok' });
+    } catch (error) {
+      return reply.code(503).send({
+        status: 'degraded',
+        db: 'error',
+        detalle: error instanceof Error ? error.message : 'desconocido',
+      });
     }
   });
 
@@ -104,7 +118,7 @@ async function main(): Promise<void> {
 
   app.setNotFoundHandler((req, reply) => {
     // Las rutas de API que no existen son 404 de verdad.
-    if (req.url.startsWith('/api/') || req.url === '/health') {
+    if (req.url.startsWith('/api/') || req.url.startsWith('/health')) {
       return reply.code(404).send({ error: 'ruta_no_encontrada', path: req.url });
     }
     // Cualquier otra ruta la resuelve el enrutador del cliente.
@@ -126,6 +140,15 @@ async function main(): Promise<void> {
 
   await app.listen({ port: env.PORT, host: '0.0.0.0' });
   app.log.info(`EterClack API lista en :${env.PORT} (${env.NODE_ENV})`);
+
+  // El sembrado va DESPUÉS de escuchar y sin await: descargar los portafolios
+  // puede tardar minutos, y un proveedor que no ve el puerto abierto a tiempo
+  // cancela el despliegue.
+  if (env.SEED_ON_START) {
+    void import('../prisma/sembrar-si-vacia.js')
+      .then(({ sembrarSiVacia }) => sembrarSiVacia(app.log))
+      .catch((error) => app.log.error(`No se pudo cargar la semilla: ${error}`));
+  }
 }
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

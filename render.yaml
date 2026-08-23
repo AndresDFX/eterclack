@@ -77,6 +77,11 @@ services:
       # o Backblaze B2 (ambos con 10 GB gratis) y llenar estos valores.
       - key: S3_ENDPOINT
         sync: false
+      # Solo la usa MinIO. Si defines S3_PUBLIC_BASE_URL (R2/B2), esta se ignora.
+      # Se declara para que no quede el valor por defecto de localhost, que
+      # serviría fotos rotas si alguien pone las llaves y olvida la URL pública.
+      - key: S3_PUBLIC_ENDPOINT
+        sync: false
       - key: S3_PUBLIC_BASE_URL
         sync: false
       - key: S3_ACCESS_KEY
@@ -95,8 +100,14 @@ services:
         value: eterclack-public
 
       # ── Correo ──────────────────────────────────────────────
-      # Render no abre el puerto 25: el servidor propio no es posible aquí.
-      # Relay externo (Brevo, Resend, SendGrid…) con credenciales SMTP.
+      # ⚠ El plan GRATUITO de Render bloquea la salida por los puertos 25, 465
+      # y 587. Ningún relay SMTP funciona ahí: los envíos fallan en silencio.
+      # Las cuentas de la semilla ya vienen verificadas, así que el flujo de
+      # reserva se puede probar entero sin correo.
+      #
+      # Para tener correo hay dos caminos: subir a un plan de pago y usar SMTP,
+      # o integrar la API HTTP del proveedor (sale por 443, que no está
+      # bloqueado). Ver docs/09.
       - key: MAIL_TRANSPORT
         value: relay
       - key: SMTP_HOST

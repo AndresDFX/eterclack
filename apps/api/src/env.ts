@@ -90,6 +90,13 @@ const schema = z.object({
    * tener que debilitar la cookie a SameSite=None.
    */
   SERVE_WEB: boolFromEnv(false),
+
+  /**
+   * Siembra datos de prueba al arrancar, solo si la base está vacía.
+   * Existe porque Render no da Shell en el plan gratuito: sin esto no habría
+   * forma de poblar la base. Corre en segundo plano, tras abrir el puerto.
+   */
+  SEED_ON_START: boolFromEnv(false),
   WEB_DIST_PATH: z.string().default('../web/dist'),
 
   PLATFORM_COMMISSION_BPS: intFromEnv(1500),
