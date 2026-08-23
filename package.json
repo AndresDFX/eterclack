@@ -1,0 +1,25 @@
+{
+  "name": "eterclack",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Marketplace de servicios fotográficos — ETERnidad a un solo CLACK",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "up": "docker compose up -d --build",
+    "down": "docker compose down",
+    "reset": "docker compose down -v && docker compose up -d --build",
+    "logs": "docker compose logs -f api web",
+    "db:migrate": "docker compose exec api npx prisma migrate dev",
+    "db:push": "docker compose exec api npx prisma db push",
+    "db:seed": "docker compose exec api npm run seed",
+    "db:studio": "docker compose exec api npx prisma studio --hostname 0.0.0.0",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

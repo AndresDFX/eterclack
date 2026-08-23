@@ -1,0 +1,394 @@
+@import 'tailwindcss';
+
+/* ════════════════════════════════════════════════════════════════
+   EterClack — sistema de diseño
+   Extraído del logotipo oficial (base/ETERCLACK - FOTO DE PERFIL-04.jpg)
+   ════════════════════════════════════════════════════════════════ */
+
+@theme {
+  /* ── Color ────────────────────────────────────────────────── */
+  --color-ink: #1d1d1b; /* carbón — fondo principal */
+  --color-ink-soft: #232320; /* superficie elevada */
+  --color-ink-line: #33332f; /* bordes y separadores */
+  --color-bone: #e6e6e6; /* blanco hueso — texto principal */
+  --color-bone-dim: #a8a8a3; /* texto secundario */
+  --color-bone-mute: #7a7a75; /* texto terciario */
+  --color-lime: #e7e226; /* amarillo lima — acento único */
+  --color-lime-dim: #b8b41e;
+
+  --color-danger: #e2574c;
+  --color-success: #4caf7d;
+  --color-warn: #e0a02c;
+
+  /* ── Tipografía ───────────────────────────────────────────── */
+  /* Cargadas desde index.html con la hoja oficial de Google Fonts. */
+  --font-display: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+  --font-sans: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+
+  /* ── Forma ────────────────────────────────────────────────── */
+  /* La marca es geométrica y de esquinas rectas: sin radios grandes. */
+  --radius-none: 0px;
+  --radius-sm: 2px;
+
+  /* ── Movimiento ───────────────────────────────────────────── */
+  --ease-clack: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Base
+   ════════════════════════════════════════════════════════════════ */
+
+@layer base {
+  * {
+    border-color: var(--color-ink-line);
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-ink);
+    color: var(--color-bone);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.1;
+  }
+
+  /* El foco es visible siempre: accesibilidad no negociable. */
+  :focus-visible {
+    outline: 2px solid var(--color-lime);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--color-lime);
+    color: var(--color-ink);
+  }
+
+  /* Scrollbar en clave de marca */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-ink);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-ink-line);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-bone-mute);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Componentes de marca
+   ════════════════════════════════════════════════════════════════ */
+
+@layer components {
+  /* ── Esquinas de visor ──────────────────────────────────────
+     El motivo central del logotipo: cuatro escuadras que encuadran,
+     como el visor de una cámara. Se usa para enmarcar contenido
+     destacado y como estado de foco en tarjetas. */
+  .clack-frame {
+    position: relative;
+  }
+
+  .clack-frame::before,
+  .clack-frame::after {
+    content: '';
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border-color: var(--color-lime);
+    transition: all 0.25s var(--ease-clack);
+    pointer-events: none;
+  }
+
+  .clack-frame::before {
+    top: 0;
+    left: 0;
+    border-top: 3px solid;
+    border-left: 3px solid;
+  }
+
+  .clack-frame::after {
+    bottom: 0;
+    right: 0;
+    border-bottom: 3px solid;
+    border-right: 3px solid;
+  }
+
+  .clack-frame:hover::before,
+  .clack-frame:hover::after {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* Variante que solo aparece al pasar el cursor */
+  .clack-frame-hover::before,
+  .clack-frame-hover::after {
+    opacity: 0;
+  }
+  .clack-frame-hover:hover::before,
+  .clack-frame-hover:hover::after {
+    opacity: 1;
+  }
+
+  /* ── Botones ────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    font-family: var(--font-display);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.18s var(--ease-clack);
+    white-space: nowrap;
+  }
+
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background: var(--color-lime);
+    color: var(--color-ink);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--color-bone);
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--color-bone);
+    border-color: var(--color-ink-line);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    border-color: var(--color-lime);
+    color: var(--color-lime);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--color-bone-dim);
+    padding: 0.5rem 0.75rem;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    color: var(--color-bone);
+  }
+
+  .btn-danger {
+    background: transparent;
+    color: var(--color-danger);
+    border-color: var(--color-danger);
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: var(--color-danger);
+    color: var(--color-bone);
+  }
+
+  /* ── Campos ─────────────────────────────────────────────── */
+  .field {
+    width: 100%;
+    background: var(--color-ink);
+    border: 1px solid var(--color-ink-line);
+    color: var(--color-bone);
+    padding: 0.75rem 1rem;
+    font-size: 0.9375rem;
+    transition: border-color 0.18s var(--ease-clack);
+  }
+  .field::placeholder {
+    color: var(--color-bone-mute);
+  }
+  .field:focus {
+    outline: none;
+    border-color: var(--color-lime);
+  }
+  .field[aria-invalid='true'] {
+    border-color: var(--color-danger);
+  }
+
+  .label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-bone-dim);
+    margin-bottom: 0.5rem;
+  }
+
+  /* ── Superficies ────────────────────────────────────────── */
+  .card {
+    background: var(--color-ink-soft);
+    border: 1px solid var(--color-ink-line);
+    transition: border-color 0.2s var(--ease-clack);
+  }
+  .card-interactive:hover {
+    border-color: var(--color-bone-mute);
+  }
+
+  /* ── Etiquetas ──────────────────────────────────────────── */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-height: 30px;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    border: 1px solid var(--color-ink-line);
+    color: var(--color-bone-dim);
+  }
+  .chip-active {
+    background: var(--color-lime);
+    border-color: var(--color-lime);
+    color: var(--color-ink);
+  }
+
+  /* ── Botón de opción: filtros y selectores en lista ──────── */
+  .opt {
+    display: flex;
+    align-items: center;
+    min-height: 40px;
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    font-size: 0.875rem;
+    border: 1px solid var(--color-ink-line);
+    color: var(--color-bone-dim);
+    transition: all 0.18s var(--ease-clack);
+  }
+  .opt:hover { border-color: var(--color-bone-mute); }
+  .opt-active {
+    border-color: var(--color-lime);
+    color: var(--color-lime);
+  }
+
+  /* ── Enlaces de navegación y pie ─────────────────────────
+     El texto se ve del mismo tamaño; lo que crece es el área
+     tocable, mediante padding vertical. */
+  .link-nav {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+  }
+
+  /* ── Casillas ────────────────────────────────────────────── */
+  /* La fila entera es el objetivo tocable: el label envuelve casilla y texto. */
+  .check-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    min-height: 44px;
+    padding: 0.25rem 0;
+    cursor: pointer;
+  }
+
+  .checkbox {
+    width: 1.5rem;
+    height: 1.5rem;
+    flex-shrink: 0;
+    accent-color: var(--color-lime);
+    cursor: pointer;
+  }
+
+  /* ── Sobrelínea: recurso tipográfico de la marca ─────────── */
+  .overline {
+    font-family: var(--font-display);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--color-bone-mute);
+  }
+
+  /* ── Carga ──────────────────────────────────────────────── */
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--color-ink-soft) 25%,
+      var(--color-ink-line) 50%,
+      var(--color-ink-soft) 75%
+    );
+    background-size: 200% 100%;
+    animation: clack-shimmer 1.4s infinite;
+  }
+}
+
+@keyframes clack-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Toque
+   En pantallas táctiles todo lo accionable llega a 44 px de alto.
+   WCAG 2.5.8 exige 24; 44 es lo que evita fallar el toque de verdad,
+   con una mano y en movimiento. El tamaño del texto no cambia: crece
+   el área, no la tipografía.
+   ════════════════════════════════════════════════════════════════ */
+@media (pointer: coarse) {
+  .link-nav {
+    min-height: 44px;
+  }
+
+  .chip {
+    min-height: 44px;
+    padding: 0.625rem 0.9rem;
+  }
+
+  .btn {
+    min-height: 46px;
+  }
+
+  .btn-ghost {
+    min-height: 44px;
+    padding: 0.625rem 0.875rem;
+  }
+
+  .opt {
+    min-height: 46px;
+  }
+
+  .field {
+    min-height: 46px;
+    /* 16px evita que iOS haga zoom al enfocar un campo. */
+    font-size: 1rem;
+  }
+
+  .checkbox {
+    width: 1.6rem;
+    height: 1.6rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

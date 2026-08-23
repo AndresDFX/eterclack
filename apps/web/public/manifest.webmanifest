@@ -1,0 +1,33 @@
+{
+  "name": "EterClack · Fotografía y video",
+  "short_name": "EterClack",
+  "description": "Encuentra, reserva y recibe tu sesión fotográfica sin salir de la plataforma.",
+  "lang": "es-CO",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#1D1D1B",
+  "theme_color": "#1D1D1B",
+  "categories": ["photo", "business", "lifestyle"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Buscar fotógrafos",
+      "short_name": "Buscar",
+      "url": "/fotografos",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Mis citas",
+      "short_name": "Citas",
+      "url": "/mis-citas",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

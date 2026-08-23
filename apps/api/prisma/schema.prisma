@@ -1,0 +1,654 @@
+// EterClack — modelo de datos
+// Convenciones: dinero en BigInt de CENTAVOS · tasas en Int de PUNTOS BASE (bps)
+// Fechas en UTC · borrado lógico · toda transición de estado va a AuditLog
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ══════════════════════════════════════════════════════════════
+//  Identidad
+// ══════════════════════════════════════════════════════════════
+
+enum Role {
+  CLIENT
+  PHOTOGRAPHER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+model User {
+  id                String     @id @default(uuid(7)) @db.Uuid
+  email             String     @unique
+  emailVerifiedAt   DateTime?
+  passwordHash      String
+  role              Role
+  fullName          String
+  phone             String?
+  status            UserStatus @default(ACTIVE)
+  consentAcceptedAt DateTime?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  deletedAt         DateTime?
+
+  photographer PhotographerProfile?
+  sessions     Session[]
+  tokens       VerificationToken[]
+  clientOrders Order[]              @relation("ClientOrders")
+
+  @@index([role, status])
+}
+
+model Session {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  userId      String    @db.Uuid
+  refreshHash String    @unique
+  userAgent   String?
+  ip          String?
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+}
+
+enum TokenPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+model VerificationToken {
+  id        String       @id @default(uuid(7)) @db.Uuid
+  userId    String       @db.Uuid
+  tokenHash String       @unique
+  purpose   TokenPurpose
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+}
+
+// ══════════════════════════════════════════════════════════════
+//  Catálogo
+// ══════════════════════════════════════════════════════════════
+
+model Specialty {
+  id     String  @id @default(uuid(7)) @db.Uuid
+  slug   String  @unique
+  name   String
+  icon   String?
+  active Boolean @default(true)
+
+  photographers PhotographerSpecialty[]
+  orders        Order[]
+}
+
+model Zone {
+  id         String  @id @default(uuid(7)) @db.Uuid
+  slug       String  @unique
+  name       String
+  department String
+  active     Boolean @default(true)
+
+  photographers PhotographerZone[]
+  orders        Order[]
+}
+
+// ══════════════════════════════════════════════════════════════
+//  Fotógrafo
+// ══════════════════════════════════════════════════════════════
+
+enum PhotographerStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+model PhotographerProfile {
+  id              String             @id @default(uuid(7)) @db.Uuid
+  userId          String             @unique @db.Uuid
+  slug            String             @unique
+  headline        String?
+  bio             String?
+  status          PhotographerStatus @default(PENDING)
+  approvedAt      DateTime?
+  approvedBy      String?            @db.Uuid
+  rejectionReason String?
+  priceFromCents  BigInt?
+  commissionBps   Int? // null = usa la comisión global
+  avatarKey       String?
+  coverKey        String?
+  instagram       String?
+  website         String?
+
+  // KYC bancario — sin esto no hay dispersión (docs/04-wompi.md §B.7)
+  legalIdType       String?
+  legalIdNumber     String?
+  bankId            String?
+  bankAccountType   String?
+  bankAccountNumber String?
+  bankHolderName    String?
+  withholdingBps    Int       @default(0)
+  bankVerifiedAt    DateTime?
+  bankVerifiedBy    String?   @db.Uuid
+  payoutsFrozen     Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user        User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  specialties PhotographerSpecialty[]
+  zones       PhotographerZone[]
+  packages    Package[]
+  portfolio   PortfolioItem[]
+  slots       AvailabilitySlot[]
+  orders      Order[]
+  ledger      LedgerEntry[]
+  payoutItems PayoutItem[]
+
+  @@index([status])
+}
+
+model PhotographerSpecialty {
+  photographerId String @db.Uuid
+  specialtyId    String @db.Uuid
+
+  photographer PhotographerProfile @relation(fields: [photographerId], references: [id], onDelete: Cascade)
+  specialty    Specialty           @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+
+  @@id([photographerId, specialtyId])
+  @@index([specialtyId])
+}
+
+model PhotographerZone {
+  photographerId String @db.Uuid
+  zoneId         String @db.Uuid
+
+  photographer PhotographerProfile @relation(fields: [photographerId], references: [id], onDelete: Cascade)
+  zone         Zone                @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+
+  @@id([photographerId, zoneId])
+  @@index([zoneId])
+}
+
+model PortfolioItem {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  photographerId String   @db.Uuid
+  imageKey       String
+  thumbKey       String?
+  caption        String?
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  photographer PhotographerProfile @relation(fields: [photographerId], references: [id], onDelete: Cascade)
+
+  @@index([photographerId, sortOrder])
+}
+
+/// Los tres únicos productos que un fotógrafo puede ofrecer.
+/// El cliente elige uno; no hay negociación de precio.
+enum PackageTier {
+  ECONOMICO
+  MEDIO
+  ALTO
+}
+
+model Package {
+  id                  String      @id @default(uuid(7)) @db.Uuid
+  photographerId      String      @db.Uuid
+  tier                PackageTier
+  name                String
+  description         String?
+  includes            String[]    @default([])
+  priceCents          BigInt
+  maxSelectablePhotos Int
+  deliveryDays        Int
+  hours               Int         @default(4)
+  active              Boolean     @default(true)
+  createdAt           DateTime    @default(now())
+
+  photographer PhotographerProfile @relation(fields: [photographerId], references: [id], onDelete: Cascade)
+  orders       Order[]
+
+  @@unique([photographerId, tier])
+  @@index([photographerId, active])
+}
+
+/// Franja de una jornada. Un día admite mañana + tarde, o día completo.
+enum SlotTurn {
+  MANANA
+  TARDE
+  DIA_COMPLETO
+}
+
+enum SlotStatus {
+  DISPONIBLE
+  RETENIDA
+  RESERVADA
+}
+
+/// Calendario interno: el fotógrafo publica las franjas en las que puede
+/// trabajar, y el cliente reserva directamente sobre ellas.
+/// Sin franja publicada no hay cita posible.
+model AvailabilitySlot {
+  id             String     @id @default(uuid(7)) @db.Uuid
+  photographerId String     @db.Uuid
+  date           DateTime   @db.Date
+  turn           SlotTurn   @default(DIA_COMPLETO)
+  status         SlotStatus @default(DISPONIBLE)
+  note           String?
+  holdExpiresAt  DateTime?
+  createdAt      DateTime   @default(now())
+
+  photographer PhotographerProfile @relation(fields: [photographerId], references: [id], onDelete: Cascade)
+  order        Order?
+
+  @@unique([photographerId, date, turn])
+  @@index([photographerId, date, status])
+}
+
+// ══════════════════════════════════════════════════════════════
+//  Solicitud y orden
+// ══════════════════════════════════════════════════════════════
+
+enum OrderStatus {
+  BORRADOR
+  CONTRATO_ACEPTADO
+  PAGO_PENDIENTE
+  RESERVADA
+  EN_PRODUCCION
+  SELECCION
+  ENTREGA_LISTA
+  COMPLETADA
+  CANCELADA
+}
+
+model Order {
+  id                  String      @id @default(uuid(7)) @db.Uuid
+  code                String      @unique
+  clientId            String      @db.Uuid
+  photographerId      String      @db.Uuid
+  packageId           String      @db.Uuid
+  slotId              String      @unique @db.Uuid
+  zoneId              String      @db.Uuid
+  specialtyId         String      @db.Uuid
+  status              OrderStatus @default(BORRADOR)
+  eventDate           DateTime    @db.Date
+  notes               String?
+  // Todo se congela al reservar: precio del paquete y comisión vigente.
+  amountCents         BigInt
+  commissionBps       Int
+  commissionCents     BigInt
+  photographerCents   BigInt
+  currency            String      @default("COP")
+  maxSelectablePhotos Int         @default(0)
+  deliveryReadyAt     DateTime?
+  completedAt         DateTime?
+  cancelledAt         DateTime?
+  cancelReason        String?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  client       User                @relation("ClientOrders", fields: [clientId], references: [id])
+  photographer PhotographerProfile @relation(fields: [photographerId], references: [id])
+  package      Package             @relation(fields: [packageId], references: [id])
+  slot         AvailabilitySlot    @relation(fields: [slotId], references: [id])
+  zone         Zone                @relation(fields: [zoneId], references: [id])
+  specialty    Specialty           @relation(fields: [specialtyId], references: [id])
+  contract     ContractAcceptance?
+  payments     Payment[]
+  gallery      Gallery?
+  ledger       LedgerEntry[]
+  downloads    Download[]
+
+  @@index([status, eventDate])
+  @@index([clientId, status])
+  @@index([photographerId, status])
+}
+
+// ══════════════════════════════════════════════════════════════
+//  Contrato
+// ══════════════════════════════════════════════════════════════
+
+model ContractTemplate {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  version    Int      @unique
+  title      String
+  bodyMd     String
+  activeFrom DateTime @default(now())
+}
+
+model ContractAcceptance {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  orderId         String   @unique @db.Uuid
+  templateVersion Int
+  renderedBody    String // texto EXACTO que el cliente vio — nunca se actualiza
+  pdfKey          String?
+  acceptedByName  String
+  acceptedAt      DateTime @default(now())
+  ip              String
+  userAgent       String
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+// ══════════════════════════════════════════════════════════════
+//  Pagos (Wompi recaudo)
+// ══════════════════════════════════════════════════════════════
+
+enum PaymentStatus {
+  INICIADO
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+  ANULADO
+  EXPIRADO
+  ERROR
+  REEMBOLSADO
+}
+
+model Payment {
+  id                 String        @id @default(uuid(7)) @db.Uuid
+  orderId            String        @db.Uuid
+  attempt            Int           @default(1)
+  reference          String        @unique
+  amountCents        BigInt
+  status             PaymentStatus @default(INICIADO)
+  wompiTransactionId String?       @unique
+  paymentMethod      String?
+  approvedAt         DateTime?
+  rawResponse        Json?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, status])
+}
+
+model WompiEvent {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  eventType     String
+  transactionId String?
+  status        String?
+  timestamp     BigInt
+  checksumValid Boolean
+  payload       Json
+  processedAt   DateTime?
+  error         String?
+  receivedAt    DateTime  @default(now())
+
+  @@unique([transactionId, status, timestamp])
+  @@index([eventType, receivedAt])
+}
+
+// ══════════════════════════════════════════════════════════════
+//  Libro contable y dispersión
+// ══════════════════════════════════════════════════════════════
+
+enum LedgerEntryType {
+  ORDER_PAYMENT
+  PLATFORM_FEE
+  PHOTOGRAPHER_PAYABLE
+  PAYOUT_SETTLEMENT
+  REFUND
+  ADJUSTMENT
+  WITHHOLDING
+}
+
+enum BalanceState {
+  RETENIDO
+  DISPONIBLE
+  PROGRAMADO
+  EN_PROCESO
+  PAGADO
+  FALLIDO
+  AJUSTADO
+}
+
+model LedgerEntry {
+  id             String          @id @default(uuid(7)) @db.Uuid
+  type           LedgerEntryType
+  orderId        String?         @db.Uuid
+  photographerId String?         @db.Uuid
+  paymentId      String?         @db.Uuid
+  payoutItemId   String?         @db.Uuid
+  amountCents    BigInt // firmado: + entra, − sale
+  balanceState   BalanceState?
+  availableAt    DateTime?
+  description    String
+  createdBy      String?         @db.Uuid
+  createdAt      DateTime        @default(now())
+
+  order        Order?               @relation(fields: [orderId], references: [id])
+  photographer PhotographerProfile? @relation(fields: [photographerId], references: [id])
+  payoutItem   PayoutItem?          @relation(fields: [payoutItemId], references: [id])
+
+  @@index([photographerId, balanceState])
+  @@index([orderId])
+}
+
+enum PayoutRunStatus {
+  BORRADOR
+  APROBADA
+  ENVIADA
+  PARCIAL
+  COMPLETADA
+  ERROR
+}
+
+model PayoutRun {
+  id           String          @id @default(uuid(7)) @db.Uuid
+  code         String          @unique
+  status       PayoutRunStatus @default(BORRADOR)
+  totalCents   BigInt          @default(0)
+  itemCount    Int             @default(0)
+  approvedBy   String?         @db.Uuid
+  approvedAt   DateTime?
+  wompiBatchId String?
+  wompiStatus  String?
+  sentAt       DateTime?
+  closedAt     DateTime?
+  createdAt    DateTime        @default(now())
+
+  items PayoutItem[]
+}
+
+enum PayoutItemStatus {
+  PENDIENTE
+  ENVIADO
+  PAGADO
+  FALLIDO
+}
+
+model PayoutItem {
+  id             String           @id @default(uuid(7)) @db.Uuid
+  runId          String           @db.Uuid
+  photographerId String           @db.Uuid
+  amountCents    BigInt
+  reference      String           @unique
+  idempotencyKey String           @unique
+  status         PayoutItemStatus @default(PENDIENTE)
+  failureReason  String?
+  retryCount     Int              @default(0)
+  wompiPayoutId  String?
+  paidAt         DateTime?
+  rawResponse    Json?
+  bankSnapshot   Json // datos bancarios usados EN ESE MOMENTO
+  createdAt      DateTime         @default(now())
+
+  run          PayoutRun           @relation(fields: [runId], references: [id], onDelete: Cascade)
+  photographer PhotographerProfile @relation(fields: [photographerId], references: [id])
+  ledger       LedgerEntry[]
+
+  @@unique([runId, photographerId])
+}
+
+// ══════════════════════════════════════════════════════════════
+//  Galerías y entrega
+// ══════════════════════════════════════════════════════════════
+
+enum GalleryStatus {
+  BORRADOR
+  PUBLICADA
+  SELECCION_CERRADA
+  ENTREGA_FINAL
+  ARCHIVADA
+}
+
+model Gallery {
+  id          String        @id @default(uuid(7)) @db.Uuid
+  orderId     String        @unique @db.Uuid
+  status      GalleryStatus @default(BORRADOR)
+  title       String?
+  publishedAt DateTime?
+  closedAt    DateTime?
+  createdAt   DateTime      @default(now())
+
+  order     Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  photos    Photo[]
+  selection Selection?
+}
+
+enum PhotoKind {
+  PROOF
+  FINAL
+}
+
+model Photo {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  galleryId   String    @db.Uuid
+  kind        PhotoKind @default(PROOF)
+  originalKey String
+  thumbKey    String?
+  previewKey  String?
+  filename    String
+  sizeBytes   BigInt
+  mimeType    String
+  width       Int?
+  height      Int?
+  sortOrder   Int       @default(0)
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  gallery        Gallery         @relation(fields: [galleryId], references: [id], onDelete: Cascade)
+  selectionItems SelectionItem[]
+
+  @@index([galleryId, kind, sortOrder])
+}
+
+model Selection {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  galleryId   String    @unique @db.Uuid
+  submittedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  gallery Gallery         @relation(fields: [galleryId], references: [id], onDelete: Cascade)
+  items   SelectionItem[]
+}
+
+model SelectionItem {
+  id          String  @id @default(uuid(7)) @db.Uuid
+  selectionId String  @db.Uuid
+  photoId     String  @db.Uuid
+  favorite    Boolean @default(false)
+  finalPick   Boolean @default(false)
+  comment     String?
+
+  selection Selection @relation(fields: [selectionId], references: [id], onDelete: Cascade)
+  photo     Photo     @relation(fields: [photoId], references: [id], onDelete: Cascade)
+
+  @@unique([selectionId, photoId])
+}
+
+model Download {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  orderId   String   @db.Uuid
+  userId    String   @db.Uuid
+  photoId   String?  @db.Uuid
+  kind      String   @default("SINGLE")
+  ip        String
+  createdAt DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+}
+
+// ══════════════════════════════════════════════════════════════
+//  Correo
+// ══════════════════════════════════════════════════════════════
+
+enum EmailStatus {
+  QUEUED
+  SENT
+  FAILED
+  SUPPRESSED
+}
+
+model Email {
+  id        String      @id @default(uuid(7)) @db.Uuid
+  template  String
+  toAddress String
+  subject   String
+  status    EmailStatus @default(QUEUED)
+  priority  Int         @default(5)
+  messageId String?
+  attempts  Int         @default(0)
+  error     String?
+  sentAt    DateTime?
+  createdAt DateTime    @default(now())
+
+  @@index([status, priority, createdAt])
+}
+
+model EmailSuppression {
+  address   String   @id
+  reason    String
+  detail    String?
+  permanent Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+// ══════════════════════════════════════════════════════════════
+//  Auditoría y configuración
+// ══════════════════════════════════════════════════════════════
+
+model AuditLog {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  actorId    String?  @db.Uuid
+  actorRole  Role?
+  action     String
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedBy String?  @db.Uuid
+  updatedAt DateTime @default(now()) @updatedAt
+}

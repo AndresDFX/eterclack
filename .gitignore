@@ -1,0 +1,33 @@
+# Dependencias
+node_modules/
+
+# Builds
+dist/
+build/
+apps/api/dist/
+apps/web/dist/
+
+# Entorno: .env.example sí se versiona, .env nunca
+.env
+.env.local
+.env.*.local
+
+# Datos y volúmenes locales
+infra/mailserver/mail-data/
+infra/mailserver/mail-state/
+infra/mailserver/mail-logs/
+
+# Herramientas
+.turbo/
+coverage/
+*.log
+*.tsbuildinfo
+
+# Documentos base: la cotización está marcada «Propuesta confidencial»
+# y lleva precios y condiciones comerciales. No va al repositorio;
+# lo que el código necesita ya está destilado en docs/.
+base/*.pdf
+
+# Sistema
+.DS_Store
+Thumbs.db
